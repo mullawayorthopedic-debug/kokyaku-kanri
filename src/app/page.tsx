@@ -24,12 +24,6 @@ const paymentStyle: Record<string, { label: string; bg: string; text: string; bo
   'その他': { label: '🔖 その他', bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
 }
 
-interface InquiryRow {
-  channel: string
-  inquiries: number
-  conversions: number
-}
-
 function PaymentBadge({ slipId, current, onUpdate }: {
   slipId: string
   current: string | null
@@ -81,10 +75,16 @@ export default function HomePage() {
   const [loadingStats, setLoadingStats] = useState(true)
   const [loadingSlips, setLoadingSlips] = useState(false)
 
-  // ===== 問い合わせ・CV入力 =====
+  // ===== 問い合わせ入力パネル =====
+  const [inquiryOpen, setInquiryOpen] = useState(false)
+  const [inquiryDate, setInquiryDate] = useState(today)
   const [adChannels, setAdChannels] = useState<string[]>([])
-  const [inquiryRows, setInquiryRows] = useState<InquiryRow[]>([])
-  const [inquiryMonth, setInquiryMonth] = useState(today.slice(0, 7))
+  // Daily inputs for the selected date (what user is typing)
+  const [dailyInputs, setDailyInputs] = useState<Record<string, { inquiries: number; conversions: number }>>({})
+  // Monthly sums EXCLUDING the selected date (from DB)
+  const [monthlyExcluding, setMonthlyExcluding] = useState<Record<string, { inquiries: number; conversions: number }>>({})
+  // Monthly ad costs from cm_ad_costs
+  const [monthlyCosts, setMonthlyCosts] = useState<Record<string, number>>({})
   const [savingInquiry, setSavingInquiry] = useState(false)
   const [inquirySaved, setInquirySaved] = useState(false)
   const [loadingInquiry, setLoadingInquiry] = useState(false)
@@ -135,67 +135,97 @@ export default function HomePage() {
     loadChannels()
   }, [clinicId])
 
-  // 問い合わせデータ読み込み（月変更時も再読み込み）
+  // 問い合わせデータ読み込み（日付変更時）
   useEffect(() => {
-    if (adChannels.length === 0) return
+    if (!inquiryOpen || adChannels.length === 0) return
     const loadInquiry = async () => {
       setLoadingInquiry(true)
-      const { data } = await supabase
-        .from('cm_ad_costs')
-        .select('channel, inquiries, conversions')
-        .eq('clinic_id', clinicId)
-        .eq('month', inquiryMonth)
-      const map: Record<string, { inquiries: number; conversions: number }> = {}
-      data?.forEach(d => {
-        map[d.channel] = { inquiries: d.inquiries || 0, conversions: d.conversions || 0 }
+      const month = inquiryDate.slice(0, 7)
+      const monthStart = month + '-01'
+      const [year, mon] = month.split('-').map(Number)
+      const lastDate = new Date(year, mon, 0)
+      const monthEnd = `${month}-${String(lastDate.getDate()).padStart(2, '0')}`
+
+      const [dailyRes, monthlyRes, costsRes] = await Promise.all([
+        // Today's saved data
+        supabase.from('cm_daily_inquiries')
+          .select('channel, inquiries, conversions')
+          .eq('clinic_id', clinicId)
+          .eq('date', inquiryDate),
+        // All month's data excluding today
+        supabase.from('cm_daily_inquiries')
+          .select('channel, inquiries, conversions')
+          .eq('clinic_id', clinicId)
+          .gte('date', monthStart)
+          .lte('date', monthEnd)
+          .neq('date', inquiryDate),
+        // Monthly ad costs
+        supabase.from('cm_ad_costs')
+          .select('channel, cost')
+          .eq('clinic_id', clinicId)
+          .eq('month', month),
+      ])
+
+      // Daily inputs for selected date
+      const daily: Record<string, { inquiries: number; conversions: number }> = {}
+      adChannels.forEach(ch => { daily[ch] = { inquiries: 0, conversions: 0 } })
+      dailyRes.data?.forEach(d => {
+        daily[d.channel] = { inquiries: d.inquiries || 0, conversions: d.conversions || 0 }
       })
-      setInquiryRows(adChannels.map(ch => ({
-        channel: ch,
-        inquiries: map[ch]?.inquiries || 0,
-        conversions: map[ch]?.conversions || 0,
-      })))
+      setDailyInputs(daily)
+
+      // Monthly sums excluding today
+      const monthly: Record<string, { inquiries: number; conversions: number }> = {}
+      adChannels.forEach(ch => { monthly[ch] = { inquiries: 0, conversions: 0 } })
+      monthlyRes.data?.forEach(d => {
+        if (!monthly[d.channel]) monthly[d.channel] = { inquiries: 0, conversions: 0 }
+        monthly[d.channel].inquiries += d.inquiries || 0
+        monthly[d.channel].conversions += d.conversions || 0
+      })
+      setMonthlyExcluding(monthly)
+
+      // Monthly costs
+      const costs: Record<string, number> = {}
+      costsRes.data?.forEach(d => { costs[d.channel] = d.cost || 0 })
+      setMonthlyCosts(costs)
+
       setInquirySaved(false)
       setLoadingInquiry(false)
     }
     loadInquiry()
-  }, [inquiryMonth, adChannels, clinicId])
+  }, [inquiryOpen, inquiryDate, adChannels, clinicId])
 
-  const updateInquiryRow = (index: number, key: 'inquiries' | 'conversions', value: number) => {
-    setInquiryRows(prev => prev.map((r, i) => i === index ? { ...r, [key]: value } : r))
+  const updateDailyInput = (channel: string, key: 'inquiries' | 'conversions', value: number) => {
+    setDailyInputs(prev => ({ ...prev, [channel]: { ...prev[channel], [key]: value } }))
   }
 
   const saveInquiries = async () => {
     setSavingInquiry(true)
-    // 既存レコードを一括取得
-    const { data: existing } = await supabase
-      .from('cm_ad_costs')
-      .select('id, channel, cost, impressions, clicks, new_patients, notes')
-      .eq('clinic_id', clinicId)
-      .eq('month', inquiryMonth)
-    const existingMap: Record<string, { id: string }> = {}
-    existing?.forEach(e => { existingMap[e.channel] = { id: e.id } })
-
-    const toUpdate = inquiryRows.filter(r => existingMap[r.channel])
-    const toInsert = inquiryRows.filter(r => !existingMap[r.channel] && (r.inquiries > 0 || r.conversions > 0))
-
-    for (const row of toUpdate) {
-      await supabase.from('cm_ad_costs')
-        .update({ inquiries: row.inquiries, conversions: row.conversions })
-        .eq('id', existingMap[row.channel].id)
-    }
-    if (toInsert.length > 0) {
-      await supabase.from('cm_ad_costs').insert(toInsert.map(r => ({
+    const upsertData = adChannels
+      .filter(ch => (dailyInputs[ch]?.inquiries || 0) > 0 || (dailyInputs[ch]?.conversions || 0) > 0)
+      .map(ch => ({
         clinic_id: clinicId,
-        month: inquiryMonth,
-        channel: r.channel,
-        cost: 0,
-        inquiries: r.inquiries,
-        conversions: r.conversions,
-        impressions: 0,
-        clicks: 0,
-        new_patients: 0,
-        notes: '',
-      })))
+        date: inquiryDate,
+        channel: ch,
+        inquiries: dailyInputs[ch]?.inquiries || 0,
+        conversions: dailyInputs[ch]?.conversions || 0,
+      }))
+
+    if (upsertData.length > 0) {
+      await supabase.from('cm_daily_inquiries')
+        .upsert(upsertData, { onConflict: 'clinic_id,date,channel' })
+    }
+
+    // Also delete rows that were zeroed out (if previously saved)
+    const zeroChannels = adChannels.filter(ch =>
+      (dailyInputs[ch]?.inquiries || 0) === 0 && (dailyInputs[ch]?.conversions || 0) === 0
+    )
+    if (zeroChannels.length > 0) {
+      await supabase.from('cm_daily_inquiries')
+        .delete()
+        .eq('clinic_id', clinicId)
+        .eq('date', inquiryDate)
+        .in('channel', zeroChannels)
     }
 
     setSavingInquiry(false)
@@ -215,9 +245,20 @@ export default function HomePage() {
     return acc
   }, {})
 
-  const totalInquiries = inquiryRows.reduce((s, r) => s + r.inquiries, 0)
-  const totalConversions = inquiryRows.reduce((s, r) => s + r.conversions, 0)
-  const totalCVR = totalInquiries > 0 ? Math.round(totalConversions / totalInquiries * 100) : 0
+  // Live monthly totals = excluding + today's inputs
+  const liveMonthly = adChannels.reduce<Record<string, { inquiries: number; conversions: number }>>((acc, ch) => {
+    acc[ch] = {
+      inquiries: (monthlyExcluding[ch]?.inquiries || 0) + (dailyInputs[ch]?.inquiries || 0),
+      conversions: (monthlyExcluding[ch]?.conversions || 0) + (dailyInputs[ch]?.conversions || 0),
+    }
+    return acc
+  }, {})
+
+  const totalMonthlyCV = adChannels.reduce((s, ch) => s + (liveMonthly[ch]?.conversions || 0), 0)
+  const totalMonthlyCost = adChannels.reduce((s, ch) => s + (monthlyCosts[ch] || 0), 0)
+  const totalCPA = totalMonthlyCV > 0 ? Math.round(totalMonthlyCost / totalMonthlyCV) : null
+
+  const inquiryMonth = inquiryDate.slice(0, 7)
 
   return (
     <AppShell>
@@ -243,8 +284,8 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* クイックアクション */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        {/* クイックアクション（5ボタン） */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-2">
           <Link href="/patients/new" className="text-white rounded-xl p-3 text-center font-bold shadow-sm text-xs" style={{ background: '#14252A' }}>
             + 新規患者
           </Link>
@@ -257,125 +298,157 @@ export default function HomePage() {
           <Link href="/visits/import" className="bg-white border-2 border-gray-200 text-gray-700 rounded-xl p-3 text-center font-bold shadow-sm text-xs hover:bg-gray-50">
             CSV取込
           </Link>
+          <button
+            onClick={() => setInquiryOpen(v => !v)}
+            className={`col-span-2 sm:col-span-1 rounded-xl p-3 text-center font-bold shadow-sm text-xs transition-all ${
+              inquiryOpen
+                ? 'bg-orange-600 text-white'
+                : 'bg-orange-500 text-white hover:bg-orange-600'
+            }`}
+          >
+            📞 問い合わせ入力
+          </button>
         </div>
 
-        {/* ===== 新規問い合わせ・CV入力 ===== */}
-        <div className="bg-white rounded-xl shadow-sm p-5 mb-5 border border-orange-100">
-          <div className="flex justify-between items-center mb-3 gap-2">
-            <h2 className="font-bold text-gray-800 text-base flex items-center gap-1.5">
-              <span className="text-lg">📞</span> 新規問い合わせ入力
-            </h2>
-            <input
-              type="month"
-              value={inquiryMonth}
-              onChange={e => setInquiryMonth(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-300"
-            />
-          </div>
-
-          {adChannels.length === 0 ? (
-            <div className="text-center py-5">
-              <p className="text-gray-400 text-sm mb-2">広告チャネルが未設定です</p>
-              <Link href="/master" className="text-xs text-blue-600 underline">マスター設定で広告媒体を登録する →</Link>
+        {/* ===== 問い合わせ入力パネル（拡張） ===== */}
+        {inquiryOpen && (
+          <div className="bg-white rounded-xl shadow-sm mb-5 border border-orange-100 overflow-hidden mt-2">
+            {/* パネルヘッダー */}
+            <div className="flex justify-between items-center px-4 py-3 bg-orange-50 border-b border-orange-100">
+              <h2 className="font-bold text-gray-800 text-sm flex items-center gap-1.5">
+                <span>📞</span> 問い合わせ・CV入力
+              </h2>
+              <button onClick={() => setInquiryOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">✕</button>
             </div>
-          ) : loadingInquiry ? (
-            <p className="text-gray-400 text-sm text-center py-4">読み込み中...</p>
-          ) : (
-            <>
-              {/* ヘッダー */}
-              <div className="grid grid-cols-[1fr_80px_80px_52px] gap-1 mb-1 px-1">
-                <div className="text-[10px] text-gray-400 font-medium">広告媒体</div>
-                <div className="text-[10px] text-gray-400 font-medium text-center">問い合わせ</div>
-                <div className="text-[10px] text-green-600 font-medium text-center">CV（来院）</div>
-                <div className="text-[10px] text-gray-400 font-medium text-right">CVR</div>
+
+            <div className="p-4">
+              {/* 日付ピッカー */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xs text-gray-500 whitespace-nowrap">入力日:</span>
+                <input
+                  type="date"
+                  value={inquiryDate}
+                  onChange={e => setInquiryDate(e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-300"
+                />
               </div>
 
-              {/* 行 */}
-              <div className="space-y-1.5 mb-3">
-                {inquiryRows.map((row, i) => {
-                  const cvr = row.inquiries > 0 ? Math.round(row.conversions / row.inquiries * 100) : null
-                  return (
-                    <div key={row.channel} className="grid grid-cols-[1fr_80px_80px_52px] gap-1 items-center bg-gray-50 rounded-lg px-2 py-1.5">
-                      <div className="text-xs font-medium text-gray-700 truncate">{row.channel}</div>
-                      <div className="flex items-center gap-0.5">
+              {adChannels.length === 0 ? (
+                <div className="text-center py-5">
+                  <p className="text-gray-400 text-sm mb-2">広告チャネルが未設定です</p>
+                  <Link href="/master" className="text-xs text-blue-600 underline">マスター設定で広告媒体を登録する →</Link>
+                </div>
+              ) : loadingInquiry ? (
+                <p className="text-gray-400 text-sm text-center py-4">読み込み中...</p>
+              ) : (
+                <>
+                  {/* 入力テーブル */}
+                  <div className="grid grid-cols-[1fr_72px_72px] gap-1 mb-1.5 px-1">
+                    <div className="text-[10px] text-gray-400 font-medium">広告媒体</div>
+                    <div className="text-[10px] text-gray-400 font-medium text-center">問い合わせ</div>
+                    <div className="text-[10px] text-green-600 font-medium text-center">CV（来院）</div>
+                  </div>
+                  <div className="space-y-1.5 mb-4">
+                    {adChannels.map(ch => (
+                      <div key={ch} className="grid grid-cols-[1fr_72px_72px] gap-1 items-center bg-gray-50 rounded-lg px-2 py-1.5">
+                        <div className="text-xs font-medium text-gray-700 truncate">{ch}</div>
                         <input
                           type="number"
                           min={0}
-                          value={row.inquiries || ''}
+                          value={dailyInputs[ch]?.inquiries || ''}
                           placeholder="0"
-                          onChange={e => updateInquiryRow(i, 'inquiries', parseInt(e.target.value) || 0)}
+                          onChange={e => updateDailyInput(ch, 'inquiries', parseInt(e.target.value) || 0)}
                           className="w-full text-center border border-gray-200 rounded px-1 py-1 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-orange-300 bg-white"
                         />
-                        <span className="text-[10px] text-gray-400 flex-shrink-0">件</span>
-                      </div>
-                      <div className="flex items-center gap-0.5">
                         <input
                           type="number"
                           min={0}
-                          value={row.conversions || ''}
+                          value={dailyInputs[ch]?.conversions || ''}
                           placeholder="0"
-                          onChange={e => updateInquiryRow(i, 'conversions', parseInt(e.target.value) || 0)}
+                          onChange={e => updateDailyInput(ch, 'conversions', parseInt(e.target.value) || 0)}
                           className="w-full text-center border border-green-200 rounded px-1 py-1 text-sm font-bold text-green-700 focus:outline-none focus:ring-1 focus:ring-green-400 bg-white"
                         />
-                        <span className="text-[10px] text-gray-400 flex-shrink-0">件</span>
                       </div>
-                      <div className="text-right">
-                        {cvr !== null ? (
-                          <span className={`text-xs font-bold ${cvr >= 30 ? 'text-green-600' : cvr >= 10 ? 'text-yellow-600' : 'text-red-500'}`}>
-                            {cvr}%
-                          </span>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
-                      </div>
+                    ))}
+                  </div>
+
+                  {/* 保存ボタン */}
+                  <button
+                    onClick={saveInquiries}
+                    disabled={savingInquiry}
+                    className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 mb-4 ${
+                      inquirySaved ? 'bg-green-600 text-white' : 'text-white'
+                    }`}
+                    style={inquirySaved ? {} : { background: '#14252A' }}
+                  >
+                    {inquirySaved ? <><span>✓</span> 保存しました</> : savingInquiry ? '保存中...' : '保存する'}
+                  </button>
+
+                  {/* 月累計 + CPA */}
+                  <div className="border-t border-orange-100 pt-3">
+                    <div className="flex justify-between items-center mb-2">
+                      <p className="text-xs font-bold text-gray-600">{inquiryMonth} 月間累計</p>
+                      <Link href="/master" className="text-[10px] text-blue-500 hover:underline">媒体設定 →</Link>
                     </div>
-                  )
-                })}
-              </div>
 
-              {/* 今月累計サマリ */}
-              {(totalInquiries > 0 || totalConversions > 0) && (
-                <div className="rounded-lg px-3 py-2 mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ background: 'rgba(20,37,42,0.05)' }}>
-                  <span className="text-gray-600">
-                    今月合計: 問い合わせ <strong className="text-gray-800 text-sm">{totalInquiries}</strong>件
-                  </span>
-                  <span className="text-gray-600">
-                    → CV来院 <strong className="text-green-700 text-sm">{totalConversions}</strong>件
-                  </span>
-                  {totalInquiries > 0 && (
-                    <span className="text-gray-600">
-                      CVR <strong className={`text-sm ${totalCVR >= 30 ? 'text-green-600' : totalCVR >= 10 ? 'text-yellow-600' : 'text-red-500'}`}>{totalCVR}%</strong>
-                    </span>
-                  )}
-                </div>
+                    {/* 媒体別サマリ */}
+                    <div className="space-y-1.5 mb-3">
+                      {adChannels.map(ch => {
+                        const mo = liveMonthly[ch] || { inquiries: 0, conversions: 0 }
+                        const cost = monthlyCosts[ch] || 0
+                        const cpa = mo.conversions > 0 ? Math.round(cost / mo.conversions) : null
+                        return (
+                          <div key={ch} className="grid grid-cols-[1fr_auto] gap-2 items-center bg-orange-50 rounded-lg px-3 py-2">
+                            <div>
+                              <span className="text-xs font-semibold text-gray-700">{ch}</span>
+                              <span className="text-[10px] text-gray-400 ml-2">
+                                問{mo.inquiries}件 / CV {mo.conversions}件
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              {cpa !== null ? (
+                                <span className={`text-xs font-bold ${
+                                  cpa <= 10000 ? 'text-green-600' : cpa <= 30000 ? 'text-yellow-600' : 'text-red-500'
+                                }`}>
+                                  CPA ¥{cpa.toLocaleString()}
+                                </span>
+                              ) : cost > 0 ? (
+                                <span className="text-xs text-gray-400">CV未入力</span>
+                              ) : (
+                                <span className="text-xs text-gray-300">—</span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* 合計CPA */}
+                    <div className="rounded-xl px-3 py-2.5 flex justify-between items-center" style={{ background: 'rgba(20,37,42,0.06)' }}>
+                      <div className="text-xs text-gray-600">
+                        月間合計: 広告費 <strong className="text-gray-800">¥{totalMonthlyCost.toLocaleString()}</strong>
+                        　CV <strong className="text-green-700">{totalMonthlyCV}件</strong>
+                      </div>
+                      {totalCPA !== null && (
+                        <span className={`text-sm font-bold ${
+                          totalCPA <= 10000 ? 'text-green-600' : totalCPA <= 30000 ? 'text-yellow-600' : 'text-red-500'
+                        }`}>
+                          CPA ¥{totalCPA.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1.5 text-center">
+                      ※ CPA = 広告費 ÷ CV数（来院）　詳細は <Link href="/sales/roas" className="text-blue-500 hover:underline">ROAS分析</Link>
+                    </p>
+                  </div>
+                </>
               )}
-
-              {/* 保存ボタン */}
-              <button
-                onClick={saveInquiries}
-                disabled={savingInquiry}
-                className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
-                  inquirySaved ? 'bg-green-600 text-white' : 'text-white'
-                }`}
-                style={inquirySaved ? {} : { background: '#14252A' }}
-              >
-                {inquirySaved ? (
-                  <><span>✓</span> 保存しました</>
-                ) : savingInquiry ? (
-                  '保存中...'
-                ) : (
-                  '保存する'
-                )}
-              </button>
-              <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-                ※ ROAS分析ページでCV数をもとにCPAを自動計算します
-              </p>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
         {/* 施術記録（日付ピッカー付き） */}
-        <div className="bg-white rounded-xl shadow-sm p-5 mb-5">
+        <div className="bg-white rounded-xl shadow-sm p-5 mb-5 mt-3">
           <div className="flex justify-between items-center mb-3">
             <h2 className="font-bold text-gray-800 text-base">🩺 施術記録</h2>
           </div>
