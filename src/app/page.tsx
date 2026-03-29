@@ -66,7 +66,7 @@ export default function HomePage() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [dateSlips, setDateSlips] = useState<TodaySlip[]>([])
   const [todayPatients, setTodayPatients] = useState<{ id: string; name: string }[]>([])
-  const [stats, setStats] = useState({ totalPatients: 0, monthVisits: 0, todayVisits: 0, todayRevenue: 0 })
+  const [stats, setStats] = useState({ totalPatients: 0, monthVisits: 0, todayVisits: 0, todayRevenue: 0, monthRevenue: 0 })
   const [loadingStats, setLoadingStats] = useState(true)
   const [loadingSlips, setLoadingSlips] = useState(false)
 
@@ -90,7 +90,7 @@ export default function HomePage() {
       const monthStart = today.slice(0, 7) + '-01'
       const [todayRes, monthRes, countRes] = await Promise.all([
         supabase.from('cm_slips').select('id, patient_id, patient_name, total_price').eq('clinic_id', clinicId).eq('visit_date', today),
-        supabase.from('cm_slips').select('id, total_price', { count: 'exact' }).eq('clinic_id', clinicId).gte('visit_date', monthStart),
+        supabase.from('cm_slips').select('id, total_price', { count: 'exact' }).eq('clinic_id', clinicId).gte('visit_date', monthStart).lte('visit_date', today),
         supabase.from('cm_patients').select('id', { count: 'exact' }).eq('clinic_id', clinicId),
       ])
       const slips = todayRes.data || []
@@ -99,8 +99,9 @@ export default function HomePage() {
       const uniquePatients = slips
         .filter(s => { if (seen.has(s.patient_id)) return false; seen.add(s.patient_id); return true })
         .map(s => ({ id: s.patient_id, name: s.patient_name || '' }))
+      const monthRevenue = (monthRes.data || []).reduce((sum: number, s: { total_price?: number }) => sum + (s.total_price || 0), 0)
       setTodayPatients(uniquePatients)
-      setStats({ totalPatients: countRes.count || 0, monthVisits: monthRes.count || 0, todayVisits: slips.length, todayRevenue })
+      setStats({ totalPatients: countRes.count || 0, monthVisits: monthRes.count || 0, todayVisits: slips.length, todayRevenue, monthRevenue })
       setLoadingStats(false)
     }
     loadStats()
@@ -261,8 +262,8 @@ export default function HomePage() {
     <AppShell>
       <div className="px-4 py-4 max-w-6xl mx-auto">
 
-        {/* ===== 統計カード（4枚） ===== */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+        {/* ===== 統計カード（5枚） ===== */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
           <div className="bg-white rounded-xl shadow-sm p-4 text-center border-l-4" style={{ borderLeftColor: '#14252A' }}>
             <div className="text-xl mb-1">👥</div>
             <p className="text-2xl font-bold" style={{ color: '#14252A' }}>{stats.totalPatients}</p>
@@ -282,6 +283,11 @@ export default function HomePage() {
             <div className="text-xl mb-1">💰</div>
             <p className="text-2xl font-bold text-amber-600">{loadingStats ? '-' : stats.todayRevenue.toLocaleString()}</p>
             <p className="text-xs text-gray-500 mt-0.5">本日の売上 円</p>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm p-4 text-center border-l-4 border-l-rose-500">
+            <div className="text-xl mb-1">📈</div>
+            <p className="text-2xl font-bold text-rose-600">{loadingStats ? '-' : stats.monthRevenue.toLocaleString()}</p>
+            <p className="text-xs text-gray-500 mt-0.5">当月の売上 円</p>
           </div>
         </div>
 
