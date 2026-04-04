@@ -42,6 +42,12 @@ function VisitForm() {
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [patientStats, setPatientStats] = useState<{
+    lastVisitDate: string | null
+    visitCount: number
+    totalAmount: number
+    daysSinceLastVisit: number | null
+  } | null>(null)
 
   const [form, setForm] = useState({
     patient_id: preselectedPatientId,
@@ -70,6 +76,25 @@ function VisitForm() {
     }
     load()
   }, [])
+
+  // 患者選択時に来店統計を取得
+  useEffect(() => {
+    if (!form.patient_id) { setPatientStats(null); return }
+    const fetchStats = async () => {
+      const { data } = await supabase
+        .from('cm_slips')
+        .select('visit_date, total_price')
+        .eq('clinic_id', clinicId)
+        .eq('patient_id', form.patient_id)
+        .order('visit_date', { ascending: false })
+      if (!data || data.length === 0) { setPatientStats({ lastVisitDate: null, visitCount: 0, totalAmount: 0, daysSinceLastVisit: null }); return }
+      const lastVisitDate = data[0].visit_date
+      const totalAmount = data.reduce((sum: number, s: { total_price?: number }) => sum + (s.total_price || 0), 0)
+      const daysSinceLastVisit = Math.floor((new Date().getTime() - new Date(lastVisitDate).getTime()) / 86400000)
+      setPatientStats({ lastVisitDate, visitCount: data.length, totalAmount, daysSinceLastVisit })
+    }
+    fetchStats()
+  }, [form.patient_id])
 
   const update = (key: string, value: string | number | string[]) => setForm(prev => ({ ...prev, [key]: value }))
 
@@ -221,12 +246,58 @@ function VisitForm() {
         </div>
 
         {selectedPatient ? (
-          <div className="flex justify-between items-center bg-blue-50 rounded-lg p-3">
-            <div>
-              <p className="font-bold text-sm">{selectedPatient.name}</p>
-              <p className="text-xs text-gray-500">{selectedPatient.furigana}</p>
+          <div className="space-y-2">
+            {/* 氏名・変更ボタン */}
+            <div className="flex justify-between items-center bg-blue-50 rounded-lg px-3 py-2">
+              <div>
+                <p className="font-bold text-sm">{selectedPatient.name}</p>
+                <p className="text-xs text-gray-500">{selectedPatient.furigana}</p>
+              </div>
+              <button onClick={() => { update('patient_id', ''); setSearch(''); setPatientStats(null) }} className="text-xs text-red-500 font-medium">変更</button>
             </div>
-            <button onClick={() => { update('patient_id', ''); setSearch('') }} className="text-xs text-red-500 font-medium">変更</button>
+            {/* 顧客情報パネル */}
+            {patientStats && (
+              <div className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-2 text-xs">
+                {/* 最終来院 */}
+                <div className="flex items-center gap-2">
+                  {patientStats.lastVisitDate ? (
+                    <>
+                      <span className={`font-bold px-2 py-0.5 rounded-full text-white text-[11px] ${
+                        patientStats.daysSinceLastVisit !== null && patientStats.daysSinceLastVisit >= 30
+                          ? 'bg-red-500' : patientStats.daysSinceLastVisit !== null && patientStats.daysSinceLastVisit >= 14
+                          ? 'bg-orange-400' : 'bg-green-500'
+                      }`}>
+                        最終来院から{patientStats.daysSinceLastVisit}日経過
+                      </span>
+                      <span className="text-gray-500">{patientStats.lastVisitDate}</span>
+                    </>
+                  ) : (
+                    <span className="text-gray-400">来院記録なし</span>
+                  )}
+                </div>
+                {/* 統計 */}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-white rounded-lg py-1.5">
+                    <p className="font-bold text-gray-800">{patientStats.visitCount}</p>
+                    <p className="text-gray-400 text-[10px]">来店数</p>
+                  </div>
+                  <div className="bg-white rounded-lg py-1.5">
+                    <p className="font-bold text-gray-800">{patientStats.visitCount > 0 ? Math.round(patientStats.totalAmount / patientStats.visitCount).toLocaleString() : 0}</p>
+                    <p className="text-gray-400 text-[10px]">平均単価</p>
+                  </div>
+                  <div className="bg-white rounded-lg py-1.5">
+                    <p className="font-bold text-gray-800">{patientStats.totalAmount.toLocaleString()}</p>
+                    <p className="text-gray-400 text-[10px]">合計金額</p>
+                  </div>
+                </div>
+                {/* 基本情報 */}
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-gray-600">
+                  {selectedPatient.gender && <span>性別: {selectedPatient.gender}</span>}
+                  {selectedPatient.phone && <span>📞 {selectedPatient.phone}</span>}
+                  {selectedPatient.address && <span className="truncate max-w-full">🏠 {selectedPatient.address}</span>}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="relative">
