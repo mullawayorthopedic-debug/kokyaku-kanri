@@ -47,6 +47,9 @@ function VisitForm() {
     visitCount: number
     totalAmount: number
     daysSinceLastVisit: number | null
+    lastMenuName: string | null
+    lastMenuPrice: number | null
+    lastNotes: string | null
   } | null>(null)
 
   const [form, setForm] = useState({
@@ -83,15 +86,15 @@ function VisitForm() {
     const fetchStats = async () => {
       const { data } = await supabase
         .from('cm_slips')
-        .select('visit_date, total_price')
+        .select('visit_date, total_price, menu_name, notes')
         .eq('clinic_id', clinicId)
         .eq('patient_id', form.patient_id)
         .order('visit_date', { ascending: false })
-      if (!data || data.length === 0) { setPatientStats({ lastVisitDate: null, visitCount: 0, totalAmount: 0, daysSinceLastVisit: null }); return }
+      if (!data || data.length === 0) { setPatientStats({ lastVisitDate: null, visitCount: 0, totalAmount: 0, daysSinceLastVisit: null, lastMenuName: null, lastMenuPrice: null, lastNotes: null }); return }
       const lastVisitDate = data[0].visit_date
       const totalAmount = data.reduce((sum: number, s: { total_price?: number }) => sum + (s.total_price || 0), 0)
       const daysSinceLastVisit = Math.floor((new Date().getTime() - new Date(lastVisitDate).getTime()) / 86400000)
-      setPatientStats({ lastVisitDate, visitCount: data.length, totalAmount, daysSinceLastVisit })
+      setPatientStats({ lastVisitDate, visitCount: data.length, totalAmount, daysSinceLastVisit, lastMenuName: data[0].menu_name || null, lastMenuPrice: data[0].total_price ?? null, lastNotes: data[0].notes || null })
     }
     fetchStats()
   }, [form.patient_id])
@@ -296,6 +299,21 @@ function VisitForm() {
                   {selectedPatient.phone && <span>📞 {selectedPatient.phone}</span>}
                   {selectedPatient.address && <span className="truncate max-w-full">🏠 {selectedPatient.address}</span>}
                 </div>
+                {/* 前回の施術内容 */}
+                {patientStats.lastMenuName && (
+                  <div className="bg-white rounded-lg px-3 py-2 space-y-0.5">
+                    <p className="text-[10px] text-gray-400 font-medium">前回の施術</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-gray-800 font-medium">{patientStats.lastMenuName}</p>
+                      {patientStats.lastMenuPrice !== null && (
+                        <p className="text-gray-600">{patientStats.lastMenuPrice.toLocaleString()}円</p>
+                      )}
+                    </div>
+                    {patientStats.lastNotes && (
+                      <p className="text-gray-500 text-[11px] leading-snug">{patientStats.lastNotes}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
