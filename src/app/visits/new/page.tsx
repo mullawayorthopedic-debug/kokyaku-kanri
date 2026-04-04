@@ -438,7 +438,7 @@ function VisitForm() {
       {/* 保存ボタン */}
       <button
         onClick={handleSave}
-        disabled={saving || !form.patient_id || form.total_price <= 0}
+        disabled={saving || !form.patient_id}
         className="w-full text-white py-4 rounded-xl font-bold text-base disabled:opacity-50 shadow-lg transition-all active:scale-95"
         style={{ background: '#14252A' }}
       >
