@@ -16,6 +16,8 @@
     "@supabase/supabase-js": "^2.99.1",
     "@types/leaflet": "^1.9.21",
     "firebase": "^12.10.0",
+    "google-auth-library": "^10.6.2",
+    "google-spreadsheet": "^5.2.0",
     "leaflet": "^1.9.4",
     "next": "16.1.6",
     "react": "19.2.3",

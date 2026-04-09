@@ -1,5 +1,7 @@
 export const saleTabs = [
   { href: '/sales', label: '概要' },
+  { href: '/sales/daily-report', label: '日報集計' },
+  { href: '/sales/monthly-report', label: '日計月計' },
   { href: '/sales/revenue', label: '売上集計' },
   { href: '/sales/slips', label: '伝票一覧' },
   { href: '/sales/new-existing', label: '新規/既存' },

@@ -16,7 +16,7 @@ interface PatientWithStats extends Patient {
   calcDaysSince: number | null
 }
 
-type SortKey = 'name' | 'gender' | 'chief_complaint' | 'referral_source' | 'line_count' | 'ltv' | 'last_visit' | 'days_since'
+type SortKey = 'chart_no' | 'name' | 'gender' | 'chief_complaint' | 'referral_source' | 'line_count' | 'ltv' | 'last_visit' | 'days_since'
 
 export default function PatientsPage() {
   const supabase = createClient()
@@ -29,8 +29,8 @@ export default function PatientsPage() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showCsvModal, setShowCsvModal] = useState(false)
-  const [sortKey, setSortKey] = useState<SortKey>('name')
-  const [sortAsc, setSortAsc] = useState(true)
+  const [sortKey, setSortKey] = useState<SortKey>('chart_no')
+  const [sortAsc, setSortAsc] = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -88,7 +88,7 @@ export default function PatientsPage() {
       setSortAsc(!sortAsc)
     } else {
       setSortKey(key)
-      setSortAsc(key === 'name') // 名前は昇順、数値系は降順がデフォルト
+      setSortAsc(key === 'name') // 名前は昇順、それ以外は降順がデフォルト
     }
   }
 
@@ -120,6 +120,9 @@ export default function PatientsPage() {
     list = [...list].sort((a, b) => {
       let cmp = 0
       switch (sortKey) {
+        case 'chart_no':
+          cmp = (a.chart_no || 0) - (b.chart_no || 0)
+          break
         case 'name':
           cmp = (a.furigana || a.name).localeCompare(b.furigana || b.name, 'ja')
           break
@@ -194,6 +197,10 @@ export default function PatientsPage() {
   }
 
   const uniqueReferrals = [...new Set(patients.map(p => p.referral_source).filter(Boolean))]
+
+  // Re:QUARTETの顧客No.（chart_no）を7桁ゼロ埋めで表示
+  const chartNo = (p: PatientWithStats) =>
+    p.chart_no ? String(p.chart_no).padStart(7, '0') : '-'
 
   return (
     <AppShell>
@@ -286,6 +293,7 @@ export default function PatientsPage() {
         <div className="md:hidden flex gap-1 mb-3 overflow-x-auto pb-1">
           <span className="text-xs text-gray-400 pt-1.5 shrink-0">並替:</span>
           {([
+            { key: 'chart_no' as SortKey, label: 'カルテ番号' },
             { key: 'name' as SortKey, label: '氏名' },
             { key: 'ltv' as SortKey, label: 'LTV' },
             { key: 'days_since' as SortKey, label: '経過' },
@@ -315,6 +323,7 @@ export default function PatientsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b">
+                    <SortHeader label="カルテ番号" sortId="chart_no" className="text-left" />
                     <SortHeader label="氏名" sortId="name" className="text-left" />
                     <SortHeader label="性別" sortId="gender" className="text-left" />
                     <SortHeader label="症状" sortId="chief_complaint" className="text-left" />
@@ -330,10 +339,21 @@ export default function PatientsPage() {
                 <tbody>
                   {filtered.map((p, idx) => (
                     <tr key={p.id} className={`border-b hover:bg-blue-50/40 cursor-pointer ${idx % 2 === 1 ? 'bg-gray-50/50' : ''}`}>
+                      <td className="px-3 py-3 text-xs text-gray-400 whitespace-nowrap font-mono">
+                        {chartNo(p)}
+                      </td>
                       <td className="px-3 py-3">
-                        <Link href={`/patients/${p.id}`} className="text-blue-600 hover:underline font-medium">
-                          {p.name}
-                        </Link>
+                        <div className="flex items-center gap-1.5">
+                          <Link href={`/patients/${p.id}`} className="text-blue-600 hover:underline font-medium">
+                            {p.name}
+                          </Link>
+                          {p.customer_category === '整体' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700 font-semibold whitespace-nowrap">整体</span>
+                          )}
+                          {p.customer_category === 'ダイエット' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold whitespace-nowrap">ダイエット</span>
+                          )}
+                        </div>
                         {p.furigana && <p className="text-xs text-gray-400">{p.furigana}</p>}
                       </td>
                       <td className="px-3 py-3 text-xs">{p.gender}</td>
@@ -368,8 +388,14 @@ export default function PatientsPage() {
                 }`}>
                   <div className="flex justify-between items-start">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <p className="font-bold text-gray-800">{p.name}</p>
+                        {p.customer_category === '整体' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700 font-semibold">整体</span>
+                        )}
+                        {p.customer_category === 'ダイエット' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold">ダイエット</span>
+                        )}
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
                           p.status === 'active' ? 'bg-green-50 text-green-700' :
                           p.status === 'completed' ? 'bg-blue-50 text-blue-700' :

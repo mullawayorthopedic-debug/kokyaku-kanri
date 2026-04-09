@@ -5,6 +5,8 @@ import AppShell from '@/components/AppShell'
 
 const saleTabs = [
   { href: '/sales', label: '概要' },
+  { href: '/sales/daily-report', label: '日報集計' },
+  { href: '/sales/monthly-report', label: '日計月計' },
   { href: '/sales/revenue', label: '売上集計' },
   { href: '/sales/slips', label: '伝票一覧' },
   { href: '/sales/ltv', label: 'LTV' },
@@ -15,6 +17,8 @@ const saleTabs = [
 ]
 
 const menuCards = [
+  { href: '/sales/daily-report', icon: '📅', title: '日報集計', desc: '日別売上・現金・クレジット・新規/リピート集計' },
+  { href: '/sales/monthly-report', icon: '📆', title: '日計月計', desc: '月別売上の当年・前年比較' },
   { href: '/sales/revenue', icon: '💰', title: '売上集計', desc: '日別・月別・年別の売上分析' },
   { href: '/sales/slips', icon: '🧾', title: '伝票一覧', desc: '施術伝票の一覧と詳細' },
   { href: '/sales/ltv', icon: '📈', title: 'LTV分析', desc: '顧客生涯価値の分析' },

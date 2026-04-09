@@ -57,34 +57,16 @@ function SignupForm() {
         return
       }
 
-      // 2. clinics テーブルに新しい院を作成
-      const { data: clinic, error: clinicError } = await supabase
-        .from('clinics')
-        .insert({
-          name: clinicName.trim(),
-          plan: 'free',
-          is_active: true,
-        })
-        .select('id')
-        .single()
+      // 2. API Route 経由で clinic 作成（service_role で RLS バイパス）
+      const res = await fetch('/api/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clinicName: clinicName.trim(), userId }),
+      })
+      const resData = await res.json()
 
-      if (clinicError || !clinic) {
-        setError('院の作成に失敗しました: ' + (clinicError?.message || ''))
-        setLoading(false)
-        return
-      }
-
-      // 3. clinic_members テーブルにowner権限で紐付け
-      const { error: memberError } = await supabase
-        .from('clinic_members')
-        .insert({
-          clinic_id: clinic.id,
-          user_id: userId,
-          role: 'owner',
-        })
-
-      if (memberError) {
-        setError('院との紐付けに失敗しました: ' + memberError.message)
+      if (!res.ok) {
+        setError('院の作成に失敗しました: ' + (resData.error || ''))
         setLoading(false)
         return
       }

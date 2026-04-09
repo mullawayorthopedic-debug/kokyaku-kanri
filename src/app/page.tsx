@@ -66,7 +66,14 @@ export default function HomePage() {
   const [selectedDate, setSelectedDate] = useState(today)
   const [dateSlips, setDateSlips] = useState<TodaySlip[]>([])
   const [todayPatients, setTodayPatients] = useState<{ id: string; name: string }[]>([])
+  const [dropoutPatients, setDropoutPatients] = useState<{ id: string; name: string; status_date: string | null; status_reason: string }[]>([])
   const [stats, setStats] = useState({ totalPatients: 0, monthVisits: 0, todayVisits: 0, todayRevenue: 0, monthRevenue: 0 })
+
+  // ===== 当日問い合わせクイック入力 =====
+  const [quickInquiry, setQuickInquiry] = useState({ inquiries: 0, reservations: 0, inquiryChannel: '', reservationChannel: '', inquiryCategory: '' as '' | 'seitai' | 'diet', reservationCategory: '' as '' | 'seitai' | 'diet' })
+  const [quickDate, setQuickDate] = useState(new Date().toISOString().split('T')[0])
+  const [savingQuick, setSavingQuick] = useState(false)
+  const [quickSaved, setQuickSaved] = useState(false)
   const [loadingStats, setLoadingStats] = useState(true)
   const [loadingSlips, setLoadingSlips] = useState(false)
 
@@ -105,7 +112,79 @@ export default function HomePage() {
       setLoadingStats(false)
     }
     loadStats()
+
+    // 離脱患者を取得
+    const loadDropouts = async () => {
+      const { data } = await supabase.from('cm_patients')
+        .select('id, name, status_date, status_reason')
+        .eq('clinic_id', clinicId)
+        .eq('status', 'inactive')
+        .order('status_date', { ascending: false })
+        .limit(20)
+      setDropoutPatients(data || [])
+    }
+    loadDropouts()
+
   }, [])
+
+  // 選択日のクイック問い合わせをロード
+  useEffect(() => {
+    const loadQuickInquiry = async () => {
+      const { data } = await supabase.from('cm_daily_inquiries')
+        .select('channel, category, inquiries, conversions')
+        .eq('clinic_id', clinicId)
+        .eq('date', quickDate)
+      const inqRow = data?.find(d => (d.inquiries || 0) > 0 && (d.conversions || 0) === 0)
+      const rsvRow = data?.find(d => (d.conversions || 0) > 0)
+      setQuickInquiry({
+        inquiries: inqRow?.inquiries || 0,
+        reservations: rsvRow?.conversions || 0,
+        inquiryChannel: inqRow?.channel || '',
+        reservationChannel: rsvRow?.channel || '',
+        inquiryCategory: (inqRow?.category as 'seitai' | 'diet' | undefined) || '',
+        reservationCategory: (rsvRow?.category as 'seitai' | 'diet' | undefined) || '',
+      })
+    }
+    loadQuickInquiry()
+  }, [quickDate, clinicId])
+
+  const saveQuickInquiry = async () => {
+    if (quickInquiry.inquiries > 0 && (!quickInquiry.inquiryChannel || !quickInquiry.inquiryCategory)) {
+      alert('問い合わせの経路と区分（整体／ダイエット）を選択してください'); return
+    }
+    if (quickInquiry.reservations > 0 && (!quickInquiry.reservationChannel || !quickInquiry.reservationCategory)) {
+      alert('予約の経路と区分（整体／ダイエット）を選択してください'); return
+    }
+    setSavingQuick(true)
+    setQuickSaved(false)
+    try {
+      const rows: { clinic_id: string; date: string; channel: string; category: string; inquiries: number; conversions: number }[] = []
+
+      const sameKey = quickInquiry.inquiryChannel === quickInquiry.reservationChannel
+        && quickInquiry.inquiryCategory === quickInquiry.reservationCategory
+
+      if (quickInquiry.inquiries > 0 && quickInquiry.inquiryChannel) {
+        if (sameKey && quickInquiry.reservations > 0) {
+          rows.push({ clinic_id: clinicId, date: quickDate, channel: quickInquiry.inquiryChannel, category: quickInquiry.inquiryCategory, inquiries: quickInquiry.inquiries, conversions: quickInquiry.reservations })
+        } else {
+          rows.push({ clinic_id: clinicId, date: quickDate, channel: quickInquiry.inquiryChannel, category: quickInquiry.inquiryCategory, inquiries: quickInquiry.inquiries, conversions: 0 })
+        }
+      }
+      if (quickInquiry.reservations > 0 && quickInquiry.reservationChannel && !sameKey) {
+        rows.push({ clinic_id: clinicId, date: quickDate, channel: quickInquiry.reservationChannel, category: quickInquiry.reservationCategory, inquiries: quickInquiry.reservations, conversions: quickInquiry.reservations })
+      }
+
+      if (rows.length > 0) {
+        await supabase.from('cm_daily_inquiries').upsert(rows, { onConflict: 'clinic_id,date,channel,category' })
+      }
+      setQuickSaved(true)
+      setTimeout(() => setQuickSaved(false), 2000)
+    } catch (e) {
+      alert('保存失敗: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setSavingQuick(false)
+    }
+  }
 
   const fetchSlips = useCallback(async (date: string) => {
     setLoadingSlips(true)
@@ -576,28 +655,109 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* ===== 右: 本日の来院患者 ===== */}
-          <div className="bg-white rounded-xl shadow-sm p-5">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="font-bold text-gray-800 text-base">👤 本日の来院患者</h2>
-              <Link href="/patients" className="text-xs text-blue-600 font-medium hover:text-blue-800">すべて見る →</Link>
-            </div>
-            {loadingStats ? (
-              <p className="text-gray-400 text-sm text-center py-8">読み込み中...</p>
-            ) : todayPatients.length === 0 ? (
-              <p className="text-gray-400 text-sm text-center py-8">本日の来院患者はいません</p>
-            ) : (
-              <div className="space-y-2">
-                {todayPatients.map(p => (
-                  <Link key={p.id} href={`/patients/${p.id}`} className="block border border-gray-100 rounded-lg p-3.5 hover:bg-gray-50 hover:shadow-sm">
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-green-500" />
-                      <p className="font-bold text-sm">{p.name}</p>
-                    </div>
-                  </Link>
-                ))}
+          {/* ===== 右: 本日の来院患者 + 離脱患者 ===== */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl shadow-sm p-5">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="font-bold text-gray-800 text-base">👤 本日の来院患者</h2>
+                <Link href="/patients" className="text-xs text-blue-600 font-medium hover:text-blue-800">すべて見る →</Link>
               </div>
-            )}
+              {loadingStats ? (
+                <p className="text-gray-400 text-sm text-center py-8">読み込み中...</p>
+              ) : todayPatients.length === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-8">本日の来院患者はいません</p>
+              ) : (
+                <div className="space-y-2">
+                  {todayPatients.map(p => (
+                    <Link key={p.id} href={`/patients/${p.id}`} className="block border border-gray-100 rounded-lg p-3.5 hover:bg-gray-50 hover:shadow-sm">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-green-500" />
+                        <p className="font-bold text-sm">{p.name}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+
+              {/* 離脱患者セクション */}
+              {dropoutPatients.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-red-100">
+                  <h3 className="font-bold text-sm text-red-700 mb-3">🚨 離脱患者（{dropoutPatients.length}名）</h3>
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                    {dropoutPatients.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-red-100 rounded-lg p-2.5 bg-red-50/30 hover:bg-red-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full shrink-0 bg-red-500" />
+                            <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                          </div>
+                          {p.status_date && <span className="text-[10px] text-red-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                        {p.status_reason && <p className="text-[10px] text-gray-500 mt-1 ml-4 truncate">{p.status_reason}</p>}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ===== 当日問い合わせ・予約クイック入力 ===== */}
+            <div className="bg-white rounded-xl shadow-sm p-5 border border-orange-100">
+              <h2 className="font-bold text-gray-800 text-base mb-3 flex items-center gap-2">
+                <span>📞</span> {quickDate === today ? '本日' : quickDate} の問い合わせ・予約
+              </h2>
+              <input type="date" value={quickDate} max={today}
+                onChange={e => setQuickDate(e.target.value)}
+                className="w-full mb-3 px-3 py-2 border border-orange-200 rounded-lg text-sm focus:outline-none focus:border-orange-400" />
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">問い合わせ数</label>
+                    <input type="number" min="0" value={quickInquiry.inquiries}
+                      onChange={e => setQuickInquiry({ ...quickInquiry, inquiries: parseInt(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border-2 border-orange-200 rounded-xl text-center text-2xl font-bold text-orange-600 focus:outline-none focus:border-orange-400" />
+                    <select value={quickInquiry.inquiryChannel}
+                      onChange={e => setQuickInquiry({ ...quickInquiry, inquiryChannel: e.target.value })}
+                      className="w-full mt-2 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400">
+                      <option value="">経路を選択</option>
+                      {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                    </select>
+                    <select value={quickInquiry.inquiryCategory}
+                      onChange={e => setQuickInquiry({ ...quickInquiry, inquiryCategory: e.target.value as '' | 'seitai' | 'diet' })}
+                      className="w-full mt-2 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400">
+                      <option value="">区分を選択</option>
+                      <option value="seitai">整体</option>
+                      <option value="diet">ダイエット</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">予約数</label>
+                    <input type="number" min="0" value={quickInquiry.reservations}
+                      onChange={e => setQuickInquiry({ ...quickInquiry, reservations: parseInt(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border-2 border-blue-200 rounded-xl text-center text-2xl font-bold text-blue-600 focus:outline-none focus:border-blue-400" />
+                    <select value={quickInquiry.reservationChannel}
+                      onChange={e => setQuickInquiry({ ...quickInquiry, reservationChannel: e.target.value })}
+                      className="w-full mt-2 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400">
+                      <option value="">経路を選択</option>
+                      {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                    </select>
+                    <select value={quickInquiry.reservationCategory}
+                      onChange={e => setQuickInquiry({ ...quickInquiry, reservationCategory: e.target.value as '' | 'seitai' | 'diet' })}
+                      className="w-full mt-2 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400">
+                      <option value="">区分を選択</option>
+                      <option value="seitai">整体</option>
+                      <option value="diet">ダイエット</option>
+                    </select>
+                  </div>
+                </div>
+                <button onClick={saveQuickInquiry} disabled={savingQuick}
+                  className="w-full py-2.5 rounded-xl text-white text-sm font-bold transition-colors disabled:opacity-50"
+                  style={{ background: quickSaved ? '#10b981' : '#ea580c' }}>
+                  {savingQuick ? '保存中...' : quickSaved ? '✓ 保存しました' : '保存'}
+                </button>
+                <p className="text-[10px] text-gray-400 text-center">※ 営業データの新規集客に自動反映されます</p>
+              </div>
+            </div>
           </div>
 
         </div>

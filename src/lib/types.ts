@@ -19,6 +19,8 @@ export interface Patient {
   medical_history: string
   notes: string
   status: 'active' | 'inactive' | 'completed'
+  status_date: string | null
+  status_reason: string
   is_enabled: boolean
   is_direct_mail: boolean
   first_visit_date: string | null
@@ -28,6 +30,7 @@ export interface Patient {
   days_since_last_visit: number | null
   line_date: string | null
   line_count: number
+  chart_no: number | null
   created_at: string
   updated_at: string
 }
@@ -45,7 +48,7 @@ export interface VisitRecord {
   next_plan: string
   next_appointment: string | null
   payment_amount: number
-  payment_method: '現金' | 'カード' | 'QR決済' | '回数券' | 'その他'
+  payment_method: '現金' | 'カード' | 'QR決済' | 'PayPay' | '回数券' | 'その他'
   notes: string
   created_at: string
   patient?: Patient
@@ -58,7 +61,7 @@ export const REFERRAL_SOURCES = [
 ] as const
 
 export const PAYMENT_METHODS = [
-  '現金', 'カード', 'QR決済', '回数券', 'その他'
+  '現金', 'カード', 'QR決済', 'PayPay', '回数券', 'その他'
 ] as const
 
 export interface Reservation {

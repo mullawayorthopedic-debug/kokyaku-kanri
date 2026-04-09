@@ -24,6 +24,8 @@ export default function PatientDetailPage() {
   const [showAllSlips, setShowAllSlips] = useState(false)
   const [editingSlip, setEditingSlip] = useState<string | null>(null)
   const [slipForm, setSlipForm] = useState<Partial<Slip>>({})
+  const [statusEditing, setStatusEditing] = useState(false)
+  const [statusForm, setStatusForm] = useState<{ status: string; status_date: string; status_reason: string }>({ status: 'active', status_date: '', status_reason: '' })
 
   useEffect(() => {
     const load = async () => {
@@ -31,6 +33,11 @@ export default function PatientDetailPage() {
       if (p) {
         setPatient(p)
         setForm(p)
+        setStatusForm({
+          status: p.status || 'active',
+          status_date: p.status_date || '',
+          status_reason: p.status_reason || '',
+        })
       }
       const { data: s } = await supabase.from('cm_slips').select('*').eq('clinic_id', clinicId).eq('patient_id', id).order('visit_date', { ascending: false })
       setSlips(s || [])
@@ -43,6 +50,18 @@ export default function PatientDetailPage() {
     await supabase.from('cm_patients').update(form).eq('id', id)
     setPatient({ ...patient!, ...form })
     setEditing(false)
+  }
+
+  const handleStatusUpdate = async () => {
+    const update: Record<string, string | null> = {
+      status: statusForm.status,
+      status_date: statusForm.status_date || null,
+      status_reason: statusForm.status_reason || '',
+    }
+    const { error } = await supabase.from('cm_patients').update(update).eq('id', id)
+    if (error) { alert('更新失敗: ' + error.message); return }
+    setPatient({ ...patient!, ...update } as Patient)
+    setStatusEditing(false)
   }
 
   const handleDelete = async () => {
@@ -107,7 +126,13 @@ export default function PatientDetailPage() {
               <h2 className="text-2xl font-bold text-gray-800">{patient.name}</h2>
               {patient.furigana && <p className="text-xs text-gray-400 mt-0.5">{patient.furigana}</p>}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {patient.customer_category === '整体' && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 font-semibold">整体</span>
+              )}
+              {patient.customer_category === 'ダイエット' && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold">ダイエット</span>
+              )}
               {patient.is_direct_mail && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">DM可</span>
               )}
@@ -249,6 +274,28 @@ export default function PatientDetailPage() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">患者区分</label>
+                <div className="flex gap-2">
+                  {['整体', 'ダイエット'].map(type => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setForm({...form, customer_category: form.customer_category === type ? '' : type})}
+                      className={`flex-1 py-2 rounded-xl text-sm font-medium border-2 transition-all ${
+                        form.customer_category === type
+                          ? type === '整体'
+                            ? 'bg-teal-600 border-teal-600 text-white'
+                            : 'bg-orange-500 border-orange-500 text-white'
+                          : 'border-gray-300 text-gray-500 bg-white'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">職業</label>
@@ -324,6 +371,83 @@ export default function PatientDetailPage() {
             <p className="text-2xl font-bold text-orange-600">{daysSince !== null && daysSince !== undefined ? daysSince : '-'}</p>
             <p className="text-xs text-gray-500 mt-1">最終来院(日前)</p>
           </div>
+        </div>
+
+        {/* 卒業 / 離脱 ステータス管理 */}
+        <div className="bg-white rounded-xl shadow-sm p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-bold text-gray-800 text-sm">📋 通院ステータス</h3>
+            {!statusEditing && (
+              <button onClick={() => setStatusEditing(true)} className="text-xs px-3 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">変更</button>
+            )}
+          </div>
+
+          {!statusEditing ? (
+            <div className="space-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
+                  patient.status === 'active' ? 'bg-green-100 text-green-700' :
+                  patient.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                  'bg-red-100 text-red-700'
+                }`}>
+                  {patient.status === 'active' ? '通院中' : patient.status === 'completed' ? '卒業' : '離脱'}
+                </span>
+                {patient.status_date && (
+                  <span className="text-xs text-gray-500">{patient.status_date}</span>
+                )}
+              </div>
+              {patient.status_reason && (
+                <p className="text-xs text-gray-600 mt-2 p-2 bg-gray-50 rounded">{patient.status_reason}</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { v: 'active', label: '通院中', color: 'bg-green-100 text-green-700 border-green-300' },
+                  { v: 'completed', label: '卒業', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+                  { v: 'inactive', label: '離脱', color: 'bg-red-100 text-red-700 border-red-300' },
+                ].map(opt => (
+                  <button key={opt.v}
+                    onClick={() => setStatusForm({ ...statusForm, status: opt.v })}
+                    className={`px-2 py-2 rounded-xl text-xs font-semibold border-2 transition-colors ${
+                      statusForm.status === opt.v ? opt.color : 'bg-white text-gray-400 border-gray-200'
+                    }`}
+                  >{opt.label}</button>
+                ))}
+              </div>
+
+              {statusForm.status !== 'active' && (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">{statusForm.status === 'completed' ? '卒業日' : '離脱日'}</label>
+                    <input type="date" value={statusForm.status_date}
+                      onChange={e => setStatusForm({ ...statusForm, status_date: e.target.value })}
+                      className={inputClass} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">理由・メモ</label>
+                    <textarea value={statusForm.status_reason}
+                      onChange={e => setStatusForm({ ...statusForm, status_reason: e.target.value })}
+                      placeholder={statusForm.status === 'completed' ? '目標達成、コース完了など' : '通院困難、転居、料金面など'}
+                      rows={3}
+                      className={inputClass} />
+                  </div>
+                </>
+              )}
+
+              <div className="flex gap-2">
+                <button onClick={handleStatusUpdate}
+                  className="flex-1 py-2 rounded-xl text-white text-sm font-bold" style={{ background: '#14252A' }}>
+                  保存
+                </button>
+                <button onClick={() => { setStatusEditing(false); setStatusForm({ status: patient.status || 'active', status_date: patient.status_date || '', status_reason: patient.status_reason || '' }) }}
+                  className="px-4 py-2 rounded-xl text-sm border border-gray-200 text-gray-600">
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 来院期間 */}

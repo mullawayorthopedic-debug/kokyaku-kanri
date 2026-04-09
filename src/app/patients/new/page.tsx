@@ -1,6 +1,14 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
+
+function getEra(year: number): string {
+  if (year >= 2019) return `令和${year - 2018}年`
+  if (year >= 1989) return `平成${year - 1988}年`
+  if (year >= 1926) return `昭和${year - 1925}年`
+  if (year >= 1912) return `大正${year - 1911}年`
+  return `明治${year - 1867}年`
+}
 import { useRouter } from 'next/navigation'
 import Header from '@/components/Header'
 import AppShell from '@/components/AppShell'
@@ -30,6 +38,26 @@ export default function NewPatientPage() {
   })
 
   const update = (key: string, value: string | boolean) => setForm(prev => ({ ...prev, [key]: value }))
+
+  const handleZipcodeChange = async (value: string) => {
+    update('zipcode', value)
+    const digits = value.replace(/[^0-9]/g, '')
+    if (digits.length === 7) {
+      try {
+        const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`)
+        const data = await res.json()
+        if (data.results?.[0]) {
+          const r = data.results[0]
+          setForm(prev => ({
+            ...prev,
+            zipcode: value,
+            prefecture: r.address1 || prev.prefecture,
+            city: (r.address2 || '') + (r.address3 || '') || prev.city,
+          }))
+        }
+      } catch { /* ignore */ }
+    }
+  }
 
   // 音声入力
   const toggleVoice = useCallback(() => {
@@ -115,8 +143,20 @@ export default function NewPatientPage() {
   const handleSave = async () => {
     if (!form.name) return
     setSaving(true)
+
+    // 最大chart_noを取得して+1を自動採番
+    const { data: maxData } = await supabase
+      .from('cm_patients')
+      .select('chart_no')
+      .eq('clinic_id', clinicId)
+      .not('chart_no', 'is', null)
+      .order('chart_no', { ascending: false })
+      .limit(1)
+    const nextChartNo = maxData && maxData[0]?.chart_no ? maxData[0].chart_no + 1 : 1
+
     const { error } = await supabase.from('cm_patients').insert({
       ...form,
+      chart_no: nextChartNo,
       status: 'active',
       clinic_id: clinicId,
     })
@@ -210,7 +250,45 @@ export default function NewPatientPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">生年月日</label>
-              <input type="date" value={form.birth_date} onChange={(e) => update('birth_date', e.target.value)} className={inputClass} />
+              {(() => {
+                const parts = form.birth_date ? form.birth_date.split('-') : ['', '', '']
+                const by = parts[0] || ''
+                const bm = parts[1] ? String(parseInt(parts[1])) : ''
+                const bd = parts[2] ? String(parseInt(parts[2])) : ''
+                const updateBirth = (y: string, m: string, d: string) => {
+                  if (y && m && d) {
+                    update('birth_date', `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`)
+                  } else {
+                    update('birth_date', [y, m ? m.padStart(2, '0') : '', d ? d.padStart(2, '0') : ''].filter(Boolean).join('-'))
+                  }
+                }
+                const currentYear = new Date().getFullYear()
+                return (
+                  <div className="flex gap-1">
+                    <select value={by} onChange={e => updateBirth(e.target.value, bm, bd)}
+                      className="flex-1 min-w-0 px-1 py-2.5 border border-gray-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#14252A]">
+                      <option value="">年</option>
+                      {Array.from({ length: currentYear - 1919 }, (_, i) => currentYear - i).map(y => (
+                        <option key={y} value={String(y)}>{y}年（{getEra(y)}）</option>
+                      ))}
+                    </select>
+                    <select value={bm} onChange={e => updateBirth(by, e.target.value, bd)}
+                      className="w-14 px-1 py-2.5 border border-gray-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#14252A]">
+                      <option value="">月</option>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                        <option key={m} value={String(m)}>{m}月</option>
+                      ))}
+                    </select>
+                    <select value={bd} onChange={e => updateBirth(by, bm, e.target.value)}
+                      className="w-14 px-1 py-2.5 border border-gray-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#14252A]">
+                      <option value="">日</option>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={String(d)}>{d}日</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })()}
             </div>
             <div>
               <label className="block text-xs text-gray-600 mb-1">性別</label>
@@ -241,7 +319,7 @@ export default function NewPatientPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-600 mb-1">郵便番号</label>
-              <input type="text" value={form.zipcode} onChange={(e) => update('zipcode', e.target.value)} className={inputClass} placeholder="000-0000" />
+              <input type="text" value={form.zipcode} onChange={(e) => handleZipcodeChange(e.target.value)} className={inputClass} placeholder="000-0000" />
             </div>
             <div>
               <label className="block text-xs text-gray-600 mb-1">都道府県</label>
@@ -271,6 +349,28 @@ export default function NewPatientPage() {
         {/* 来院情報 */}
         <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
           <h3 className="font-bold text-gray-800 text-sm border-b pb-2">来院情報</h3>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">患者区分 *</label>
+            <div className="flex gap-2">
+              {['整体', 'ダイエット'].map(type => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => update('customer_category', form.customer_category === type ? '' : type)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-all ${
+                    form.customer_category === type
+                      ? type === '整体'
+                        ? 'bg-teal-600 border-teal-600 text-white'
+                        : 'bg-orange-500 border-orange-500 text-white'
+                      : 'border-gray-300 text-gray-500 bg-white'
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div>
             <label className="block text-xs text-gray-600 mb-1">職業</label>
