@@ -719,8 +719,9 @@ export default function HomePage() {
                     <select value={quickInquiry.inquiryChannel}
                       onChange={e => setQuickInquiry({ ...quickInquiry, inquiryChannel: e.target.value })}
                       className="w-full mt-2 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400">
-                      <option value="">経路を選択</option>
-                      {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                      <option value="">媒体を選択</option>
+                      <option value="LINE">LINE</option>
+                      <option value="電話">電話</option>
                     </select>
                     <select value={quickInquiry.inquiryCategory}
                       onChange={e => setQuickInquiry({ ...quickInquiry, inquiryCategory: e.target.value as '' | 'seitai' | 'diet' })}
