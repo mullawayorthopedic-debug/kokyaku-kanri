@@ -22,6 +22,8 @@ interface MonthlyData {
   existDiet: number
   existRevSeitai: number
   existRevDiet: number
+  inquiries: number
+  reservations: number
 }
 
 interface NewPatientDetail {
@@ -165,6 +167,19 @@ export default function NewExistingPage() {
         }
       })
 
+      // 問い合わせ・予約データ取得
+      const { data: inquiryData } = await supabase
+        .from('cm_daily_inquiries')
+        .select('date, inquiries, conversions')
+        .eq('clinic_id', clinicId)
+      const inquiryByMonth: Record<string, { inquiries: number; reservations: number }> = {}
+      inquiryData?.forEach((row: { date: string; inquiries: number; conversions: number }) => {
+        const m = row.date.slice(0, 7)
+        if (!inquiryByMonth[m]) inquiryByMonth[m] = { inquiries: 0, reservations: 0 }
+        inquiryByMonth[m].inquiries += row.inquiries || 0
+        inquiryByMonth[m].reservations += row.conversions || 0
+      })
+
       const result: MonthlyData[] = Object.entries(monthMap)
         .sort(([a], [b]) => b.localeCompare(a))
         .map(([month, d]) => ({
@@ -183,6 +198,8 @@ export default function NewExistingPage() {
           existDiet: d.existDietPids.size,
           existRevSeitai: d.existRevSeitai,
           existRevDiet: d.existRevDiet,
+          inquiries: inquiryByMonth[month]?.inquiries || 0,
+          reservations: inquiryByMonth[month]?.reservations || 0,
         }))
 
       const details: Record<string, NewPatientDetail[]> = {}
@@ -315,6 +332,10 @@ export default function NewExistingPage() {
                     <span className="text-blue-600">新規 {d.newRevenue.toLocaleString()}円 ({d.newCount}件)</span>
                     <span className="text-green-600">既存 {d.existingRevenue.toLocaleString()}円 ({d.existingCount}件)</span>
                   </div>
+                  <div className="flex justify-between mt-0.5">
+                    <span className="text-orange-600">問い合わせ {d.inquiries}件</span>
+                    <span className="text-purple-600">予約 {d.reservations}件</span>
+                  </div>
                 </div>
                 {selectedMonth === d.month && (
                   <div className="mt-3 pt-3 border-t border-blue-100">
@@ -334,6 +355,7 @@ export default function NewExistingPage() {
                   <th className="text-left px-3 py-2 text-xs text-gray-500">月</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">新規売上</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">新規件数<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-500">問い合わせ<br/><span className="text-gray-400 font-normal">予約</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">既存売上<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">既存件数<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">総売上</th>
@@ -343,7 +365,7 @@ export default function NewExistingPage() {
               </thead>
               <tbody>
                 {data.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-8 text-gray-400">データがありません</td></tr>
+                  <tr><td colSpan={9} className="text-center py-8 text-gray-400">データがありません</td></tr>
                 ) : data.map(d => (
                   <>
                   <tr key={d.month}
@@ -360,6 +382,12 @@ export default function NewExistingPage() {
                       <span className="text-blue-600 font-medium">{d.newCount}件</span>
                       <div className="text-xs text-gray-400 mt-0.5">
                         <span className="text-teal-600">{d.newSeitai}</span>/<span className="text-orange-500">{d.newDiet}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <span className="text-orange-600 font-medium">{d.inquiries}件</span>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        <span className="text-purple-600">{d.reservations}件</span>
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -386,7 +414,7 @@ export default function NewExistingPage() {
                   {/* 展開パネル */}
                   {selectedMonth === d.month && (
                     <tr key={`${d.month}-detail`}>
-                      <td colSpan={8} className="px-4 py-4 bg-blue-50 border-b">
+                      <td colSpan={9} className="px-4 py-4 bg-blue-50 border-b">
                         <p className="text-xs font-semibold text-blue-700 mb-3">
                           {d.month} 新規患者一覧（計 {d.newCount}名 / {d.newRevenue.toLocaleString()}円）
                         </p>
