@@ -1,21 +1,17 @@
--- Add category (seitai/diet) to daily inquiries for distinguishing 整体 vs ダイエット
-ALTER TABLE cm_daily_inquiries
-  ADD COLUMN IF NOT EXISTS category text;
+-- Create cm_daily_inquiries table (daily inquiry/reservation tracking per channel)
+CREATE TABLE IF NOT EXISTS cm_daily_inquiries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  clinic_id uuid NOT NULL REFERENCES clinics(id),
+  date date NOT NULL,
+  channel text NOT NULL DEFAULT '',
+  category text,
+  inquiries integer NOT NULL DEFAULT 0,
+  conversions integer NOT NULL DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  CONSTRAINT cm_daily_inquiries_unique UNIQUE NULLS NOT DISTINCT (clinic_id, date, channel, category)
+);
 
--- Replace unique constraint to include category (NULLS NOT DISTINCT so legacy NULL rows still unique per channel/day)
-DO $$
-DECLARE
-  con record;
-BEGIN
-  FOR con IN
-    SELECT conname FROM pg_constraint
-    WHERE conrelid = 'cm_daily_inquiries'::regclass
-      AND contype = 'u'
-  LOOP
-    EXECUTE format('ALTER TABLE cm_daily_inquiries DROP CONSTRAINT %I', con.conname);
-  END LOOP;
-END $$;
-
-ALTER TABLE cm_daily_inquiries
-  ADD CONSTRAINT cm_daily_inquiries_unique
-  UNIQUE NULLS NOT DISTINCT (clinic_id, date, channel, category);
+-- RLS
+ALTER TABLE cm_daily_inquiries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "cm_daily_inquiries_clinic" ON cm_daily_inquiries
+  USING (clinic_id IN (SELECT clinic_id FROM clinic_members WHERE user_id = auth.uid()));
