@@ -722,6 +722,7 @@ export default function HomePage() {
                       <option value="">媒体を選択</option>
                       <option value="LINE">LINE</option>
                       <option value="電話">電話</option>
+                      <option value="ホットペッパー">ホットペッパー</option>
                     </select>
                     <select value={quickInquiry.inquiryCategory}
                       onChange={e => setQuickInquiry({ ...quickInquiry, inquiryCategory: e.target.value as '' | 'seitai' | 'diet' })}
