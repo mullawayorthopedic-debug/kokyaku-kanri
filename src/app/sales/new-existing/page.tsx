@@ -24,6 +24,10 @@ interface MonthlyData {
   existRevDiet: number
   inquiries: number
   reservations: number
+  inquirySeitai: number
+  inquiryDiet: number
+  reservationSeitai: number
+  reservationDiet: number
 }
 
 interface NewPatientDetail {
@@ -170,14 +174,21 @@ export default function NewExistingPage() {
       // 問い合わせ・予約データ取得
       const { data: inquiryData } = await supabase
         .from('cm_daily_inquiries')
-        .select('date, inquiries, conversions')
+        .select('date, category, inquiries, conversions')
         .eq('clinic_id', clinicId)
-      const inquiryByMonth: Record<string, { inquiries: number; reservations: number }> = {}
-      inquiryData?.forEach((row: { date: string; inquiries: number; conversions: number }) => {
+      const inquiryByMonth: Record<string, { inquiries: number; reservations: number; inquirySeitai: number; inquiryDiet: number; reservationSeitai: number; reservationDiet: number }> = {}
+      inquiryData?.forEach((row: { date: string; category: string | null; inquiries: number; conversions: number }) => {
         const m = row.date.slice(0, 7)
-        if (!inquiryByMonth[m]) inquiryByMonth[m] = { inquiries: 0, reservations: 0 }
+        if (!inquiryByMonth[m]) inquiryByMonth[m] = { inquiries: 0, reservations: 0, inquirySeitai: 0, inquiryDiet: 0, reservationSeitai: 0, reservationDiet: 0 }
         inquiryByMonth[m].inquiries += row.inquiries || 0
         inquiryByMonth[m].reservations += row.conversions || 0
+        if (row.category === 'seitai') {
+          inquiryByMonth[m].inquirySeitai += row.inquiries || 0
+          inquiryByMonth[m].reservationSeitai += row.conversions || 0
+        } else if (row.category === 'diet') {
+          inquiryByMonth[m].inquiryDiet += row.inquiries || 0
+          inquiryByMonth[m].reservationDiet += row.conversions || 0
+        }
       })
 
       const result: MonthlyData[] = Object.entries(monthMap)
@@ -200,6 +211,10 @@ export default function NewExistingPage() {
           existRevDiet: d.existRevDiet,
           inquiries: inquiryByMonth[month]?.inquiries || 0,
           reservations: inquiryByMonth[month]?.reservations || 0,
+          inquirySeitai: inquiryByMonth[month]?.inquirySeitai || 0,
+          inquiryDiet: inquiryByMonth[month]?.inquiryDiet || 0,
+          reservationSeitai: inquiryByMonth[month]?.reservationSeitai || 0,
+          reservationDiet: inquiryByMonth[month]?.reservationDiet || 0,
         }))
 
       const details: Record<string, NewPatientDetail[]> = {}
@@ -333,8 +348,8 @@ export default function NewExistingPage() {
                     <span className="text-green-600">既存 {d.existingRevenue.toLocaleString()}円 ({d.existingCount}件)</span>
                   </div>
                   <div className="flex justify-between mt-0.5">
-                    <span className="text-orange-600">問い合わせ {d.inquiries}件</span>
-                    <span className="text-purple-600">予約 {d.reservations}件</span>
+                    <span className="text-orange-600">問合せ {d.inquiries}件 <span className="text-xs">({d.inquirySeitai}/{d.inquiryDiet})</span></span>
+                    <span className="text-purple-600">予約 {d.reservations}件 <span className="text-xs">({d.reservationSeitai}/{d.reservationDiet})</span></span>
                   </div>
                 </div>
                 {selectedMonth === d.month && (
@@ -387,7 +402,11 @@ export default function NewExistingPage() {
                     <td className="px-3 py-2 text-right">
                       <span className="text-orange-600 font-medium">{d.inquiries}件</span>
                       <div className="text-xs text-gray-400 mt-0.5">
-                        <span className="text-purple-600">{d.reservations}件</span>
+                        <span className="text-teal-600">{d.inquirySeitai}</span>/<span className="text-orange-500">{d.inquiryDiet}</span>
+                      </div>
+                      <span className="text-purple-600 font-medium">{d.reservations}件</span>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        <span className="text-teal-600">{d.reservationSeitai}</span>/<span className="text-orange-500">{d.reservationDiet}</span>
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right">
