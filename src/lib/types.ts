@@ -55,9 +55,9 @@ export interface VisitRecord {
 }
 
 export const REFERRAL_SOURCES = [
-  'HP', 'Google検索', 'Googleマップ', 'Instagram', 'YouTube', 'Facebook', 'TikTok', 'SEO',
-  '紹介', '折込', 'チラシ（ポスティング）', '通りがかり', 'LINE',
-  'エキテン', 'イーパーク', 'HPB', 'その他'
+  'PPC（腰痛）', 'MEO（整体）', 'MEO（ダイエット）', 'HPB',
+  'インスタ（整体）', 'インスタ（ダイエット）', '紹介', 'チラシ',
+  '折込チラシ', 'YouTube'
 ] as const
 
 export const PAYMENT_METHODS = [
