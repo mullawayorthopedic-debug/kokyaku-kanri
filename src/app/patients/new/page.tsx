@@ -32,7 +32,7 @@ export default function NewPatientPage() {
     phone: '', email: '',
     zipcode: '', prefecture: '', city: '', address: '', building: '',
     occupation: '',
-    referral_source: '', visit_motive: '', customer_category: '',
+    referral_source: '', booking_channel: '', visit_motive: '', customer_category: '',
     chief_complaint: '', medical_history: '', notes: '',
     is_direct_mail: true, is_enabled: true,
   })
@@ -382,6 +382,16 @@ export default function NewPatientPage() {
             <select value={form.referral_source} onChange={(e) => update('referral_source', e.target.value)} className={inputClass}>
               <option value="">選択してください</option>
               {REFERRAL_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">予約媒体</label>
+            <select value={form.booking_channel} onChange={(e) => update('booking_channel', e.target.value)} className={inputClass}>
+              <option value="">選択してください</option>
+              <option value="LINE">LINE</option>
+              <option value="電話">電話</option>
+              <option value="ホットペッパー">ホットペッパー</option>
             </select>
           </div>
 

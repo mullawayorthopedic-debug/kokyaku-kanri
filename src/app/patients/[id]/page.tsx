@@ -308,6 +308,15 @@ export default function PatientDetailPage() {
                     {REFERRAL_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">予約媒体</label>
+                  <select value={form.booking_channel || ''} onChange={e => setForm({...form, booking_channel: e.target.value})} className={inputClass}>
+                    <option value="">選択</option>
+                    <option value="LINE">LINE</option>
+                    <option value="電話">電話</option>
+                    <option value="ホットペッパー">ホットペッパー</option>
+                  </select>
+                </div>
               </div>
 
               <div>
