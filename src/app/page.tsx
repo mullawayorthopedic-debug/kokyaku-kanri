@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
@@ -61,7 +61,26 @@ function PaymentBadge({ slipId, current, onUpdate }: {
 export default function HomePage() {
   const supabase = createClient()
   const clinicId = getClinicId()
-  const today = new Date().toISOString().split('T')[0]
+  const getToday = () => new Date().toISOString().split('T')[0]
+  const [today, setToday] = useState(getToday)
+  const todayRef = useRef(today)
+
+  // 日付変更検知：タブ復帰時にリフレッシュ
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const now = getToday()
+        if (now !== todayRef.current) {
+          todayRef.current = now
+          setToday(now)
+          setSelectedDate(now)
+          setQuickDate(now)
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
 
   const [selectedDate, setSelectedDate] = useState(today)
   const [dateSlips, setDateSlips] = useState<TodaySlip[]>([])
@@ -125,7 +144,7 @@ export default function HomePage() {
     }
     loadDropouts()
 
-  }, [])
+  }, [today])
 
   // 選択日のクイック問い合わせをロード
   useEffect(() => {
