@@ -13,6 +13,7 @@ export interface Patient {
   building: string
   occupation: string
   referral_source: string
+  booking_channel: string
   visit_motive: string
   customer_category: string
   chief_complaint: string
