@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
@@ -8,6 +8,13 @@ import { fetchAllSlips } from '@/lib/fetchAll'
 import { saleTabs } from '@/lib/saleTabs'
 
 const DOW_JA = ['日', '月', '火', '水', '木', '金', '土']
+
+interface SlipDetail {
+  patient_name: string
+  total_price: number
+  payment_method: string | null
+  isNew: boolean
+}
 
 interface DayRow {
   date: string // YYYY-MM-DD
@@ -19,6 +26,7 @@ interface DayRow {
   visits: number
   newPatients: number
   repeat: number
+  slips: SlipDetail[]
 }
 
 export default function DailyReportPage() {
@@ -29,6 +37,7 @@ export default function DailyReportPage() {
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
   const [rows, setRows] = useState<DayRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [expandedDates, setExpandedDates] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const load = async () => {
@@ -40,7 +49,7 @@ export default function DailyReportPage() {
       const lastDay = `${selectedMonth}-${String(lastDate.getDate()).padStart(2, '0')}`
 
       // Fetch slips for the selected month
-      const monthSlips = await fetchAllSlips(supabase, 'id,patient_id,visit_date,total_price,payment_method', {
+      const monthSlips = await fetchAllSlips(supabase, 'id,patient_id,patient_name,visit_date,total_price,payment_method', {
         gte: ['visit_date', firstDay],
         lte: ['visit_date', lastDay],
       })
@@ -62,7 +71,7 @@ export default function DailyReportPage() {
       for (const s of monthSlips) {
         const d = s.visit_date as string
         if (!byDate[d]) {
-          byDate[d] = { date: d, revenue: 0, cash: 0, credit: 0, qr: 0, paypay: 0, visits: 0, newPatients: 0, repeat: 0 }
+          byDate[d] = { date: d, revenue: 0, cash: 0, credit: 0, qr: 0, paypay: 0, visits: 0, newPatients: 0, repeat: 0, slips: [] }
         }
         const row = byDate[d]
         row.revenue += s.total_price || 0
@@ -77,6 +86,12 @@ export default function DailyReportPage() {
         } else {
           row.repeat++
         }
+        row.slips.push({
+          patient_name: s.patient_name || '不明',
+          total_price: s.total_price || 0,
+          payment_method: s.payment_method || null,
+          isNew: !!isNew,
+        })
       }
 
       const sorted = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date))
@@ -92,6 +107,15 @@ export default function DailyReportPage() {
     const dd = String(d.getDate()).padStart(2, '0')
     const dow = DOW_JA[d.getDay()]
     return `${dd}(${dow})`
+  }
+
+  const toggleDate = (date: string) => {
+    setExpandedDates(prev => {
+      const next = new Set(prev)
+      if (next.has(date)) next.delete(date)
+      else next.add(date)
+      return next
+    })
   }
 
   const fmt = (n: number) => n === 0 ? '-' : n.toLocaleString()
@@ -158,21 +182,70 @@ export default function DailyReportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row, i) => (
-                    <tr key={row.date} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">{formatDay(row.date)}</td>
-                      <td className="px-3 py-2 text-right text-gray-800 tabular-nums">{fmt(row.revenue)}</td>
-                      <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.cash)}</td>
-                      <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.credit)}</td>
-                      <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.qr)}</td>
-                      <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.paypay)}</td>
-                      <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{fmtNum(row.visits)}</td>
-                      <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.newPatients > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
-                        {fmtNum(row.newPatients)}
-                      </td>
-                      <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmtNum(row.repeat)}</td>
-                    </tr>
-                  ))}
+                  {rows.map((row, i) => {
+                    const isExpanded = expandedDates.has(row.date)
+                    return (
+                      <React.Fragment key={row.date}>
+                        <tr
+                          className={`cursor-pointer hover:bg-teal-50 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                          onClick={() => toggleDate(row.date)}
+                        >
+                          <td className="px-3 py-2 font-medium text-gray-700 whitespace-nowrap">
+                            <span className="inline-block w-4 text-xs text-gray-400 mr-1">{isExpanded ? '▼' : '▶'}</span>
+                            {formatDay(row.date)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-800 tabular-nums">{fmt(row.revenue)}</td>
+                          <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.cash)}</td>
+                          <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.credit)}</td>
+                          <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.qr)}</td>
+                          <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmt(row.paypay)}</td>
+                          <td className="px-3 py-2 text-right text-gray-700 tabular-nums">{fmtNum(row.visits)}</td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-medium ${row.newPatients > 0 ? 'text-emerald-600' : 'text-gray-400'}`}>
+                            {fmtNum(row.newPatients)}
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-600 tabular-nums">{fmtNum(row.repeat)}</td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={9} className="p-0">
+                              <div className="bg-gray-50 border-y border-gray-200 px-4 py-2">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-gray-500">
+                                      <th className="text-left py-1 px-2 font-medium">顧客名</th>
+                                      <th className="text-right py-1 px-2 font-medium">金額</th>
+                                      <th className="text-center py-1 px-2 font-medium">支払い方法</th>
+                                      <th className="text-center py-1 px-2 font-medium">区分</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {row.slips.map((slip, j) => (
+                                      <tr key={j} className="border-t border-gray-100">
+                                        <td className="py-1.5 px-2 text-gray-700">{slip.patient_name}</td>
+                                        <td className="py-1.5 px-2 text-right text-gray-700 tabular-nums">
+                                          {slip.total_price > 0 ? slip.total_price.toLocaleString() + '円' : '-'}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-center text-gray-600">
+                                          {slip.payment_method || '-'}
+                                        </td>
+                                        <td className="py-1.5 px-2 text-center">
+                                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                            slip.isNew ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                                          }`}>
+                                            {slip.isNew ? '新規' : 'リピート'}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
                   {/* Totals row */}
                   <tr className="bg-[#14252A] text-white font-bold">
                     <td className="px-3 py-2.5 whitespace-nowrap">合計</td>
