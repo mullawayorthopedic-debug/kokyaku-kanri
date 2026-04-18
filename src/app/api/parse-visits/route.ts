@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@/lib/supabase/server'
 import { findBestMatch } from '@/lib/nameMatch'
 import { getClinicIdServer } from '@/lib/clinic-server'
+import { getToday } from '@/lib/dateUtils'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY || '' })
 
@@ -11,6 +13,12 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 export async function POST(req: NextRequest) {
   try {
+    const supabaseAuth = await createClient()
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 })
+    }
+
     const { text } = await req.json()
     if (!text || typeof text !== 'string') {
       return NextResponse.json({ error: 'テキストが必要です' }, { status: 400 })
@@ -20,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEYが設定されていません' }, { status: 500 })
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey)
+    const supabase = createSupabaseClient(supabaseUrl, supabaseKey)
     const clinicId = await getClinicIdServer()
 
     // 全患者を取得（activeに限定しない - 休止中の患者も来院する可能性あり）
@@ -39,7 +47,7 @@ export async function POST(req: NextRequest) {
     const patientList = (patients || []).map(p => `${p.name}（${p.furigana || ''}）→ ID:${p.id}`).join('\n')
     const menuList = (menus || []).map(m => `${m.name}: ${m.price}円 / ${m.duration_minutes}分`).join('\n')
 
-    const today = new Date().toISOString().split('T')[0]
+    const today = getToday()
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -92,7 +100,7 @@ ${text}`
 
     const jsonMatch = content.text.match(/\[[\s\S]*\]/)
     if (!jsonMatch) {
-      return NextResponse.json({ error: '解析結果を読み取れませんでした', raw: content.text }, { status: 500 })
+      return NextResponse.json({ error: '解析結果を読み取れませんでした' }, { status: 500 })
     }
 
     const parsed = JSON.parse(jsonMatch[0])

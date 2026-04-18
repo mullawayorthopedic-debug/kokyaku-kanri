@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fetchAllSlips } from '@/lib/fetchAll'
 import type { Patient, Slip } from '@/lib/types'
 import { getClinicId } from '@/lib/clinic'
+import { formatLocalDate } from '@/lib/dateUtils'
 
 export default function StatsPage() {
   const supabase = createClient()
@@ -24,7 +25,7 @@ export default function StatsPage() {
       if (period === 'week') {
         const d = new Date(now)
         d.setDate(d.getDate() - 7)
-        startDate = d.toISOString().split('T')[0]
+        startDate = formatLocalDate(d)
       } else if (period === 'month') {
         startDate = now.toISOString().slice(0, 7) + '-01'
       } else {

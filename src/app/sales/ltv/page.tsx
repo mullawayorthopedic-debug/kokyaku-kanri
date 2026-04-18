@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fetchAllSlips } from '@/lib/fetchAll'
 import { saleTabs } from '@/lib/saleTabs'
 import { getClinicId } from '@/lib/clinic'
+import { formatLocalDate } from '@/lib/dateUtils'
 
 interface PatientLTV {
   id: string
@@ -39,7 +40,7 @@ type PeriodKey = 'all' | '1m' | '3m' | '6m' | '1y' | 'custom'
 
 function getDateRange(period: PeriodKey, customFrom: string, customTo: string): { from: string | null; to: string | null } {
   const today = new Date()
-  const fmt = (d: Date) => d.toISOString().split('T')[0]
+  const fmt = (d: Date) => formatLocalDate(d)
   const to = fmt(today)
   switch (period) {
     case '1m': { const d = new Date(today); d.setMonth(d.getMonth() - 1); return { from: fmt(d), to } }

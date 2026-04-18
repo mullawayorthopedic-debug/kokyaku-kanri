@@ -6,6 +6,7 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { saleTabs } from '@/lib/saleTabs'
 import { fetchAllSlips } from '@/lib/fetchAll'
+import { getToday, formatLocalDate } from '@/lib/dateUtils'
 
 interface DayUtilization {
   date: string
@@ -20,8 +21,8 @@ export default function UtilizationPage() {
   const [period, setPeriod] = useState('month')
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState(getToday())
+  const [endDate, setEndDate] = useState(getToday())
   const [maxSlotsPerDay, setMaxSlotsPerDay] = useState(8) // 1日最大枠数
   const [loading, setLoading] = useState(true)
 
@@ -35,14 +36,14 @@ export default function UtilizationPage() {
       let queryEnd: string
 
       if (period === 'day') {
-        queryStart = new Date().toISOString().split('T')[0]
+        queryStart = getToday()
         queryEnd = queryStart
       } else if (period === 'month') {
         queryStart = selectedMonth + '-01'
         const d = new Date(queryStart)
         d.setMonth(d.getMonth() + 1)
         d.setDate(0)
-        queryEnd = d.toISOString().split('T')[0]
+        queryEnd = formatLocalDate(d)
       } else if (period === 'year') {
         queryStart = selectedYear + '-01-01'
         queryEnd = selectedYear + '-12-31'
@@ -68,7 +69,7 @@ export default function UtilizationPage() {
       const current = new Date(queryStart)
       const end = new Date(queryEnd)
       while (current <= end) {
-        const dateStr = current.toISOString().split('T')[0]
+        const dateStr = formatLocalDate(current)
         const dayOfWeek = current.getDay()
         if (dayOfWeek !== 0) { // 日曜を除外
           const count = dayMap[dateStr] || 0

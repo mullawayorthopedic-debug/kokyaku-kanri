@@ -6,6 +6,7 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { saleTabs } from '@/lib/saleTabs'
 import { fetchAllSlips } from '@/lib/fetchAll'
+import { getToday, formatLocalDate } from '@/lib/dateUtils'
 
 interface HourlyData {
   date: string
@@ -21,8 +22,8 @@ export default function HourlyPage() {
   const [period, setPeriod] = useState('month')
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState(getToday())
+  const [endDate, setEndDate] = useState(getToday())
   const [loading, setLoading] = useState(true)
 
   const years = Array.from({ length: 6 }, (_, i) => String(new Date().getFullYear() - i))
@@ -35,14 +36,14 @@ export default function HourlyPage() {
       let queryEnd: string
 
       if (period === 'day') {
-        queryStart = new Date().toISOString().split('T')[0]
+        queryStart = getToday()
         queryEnd = queryStart
       } else if (period === 'month') {
         queryStart = selectedMonth + '-01'
         const d = new Date(queryStart)
         d.setMonth(d.getMonth() + 1)
         d.setDate(0)
-        queryEnd = d.toISOString().split('T')[0]
+        queryEnd = formatLocalDate(d)
       } else if (period === 'year') {
         queryStart = selectedYear + '-01-01'
         queryEnd = selectedYear + '-12-31'

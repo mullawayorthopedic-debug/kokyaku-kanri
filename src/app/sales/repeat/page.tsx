@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { saleTabs } from '@/lib/saleTabs'
 import { fetchAllSlips } from '@/lib/fetchAll'
 import { getClinicId } from '@/lib/clinic'
+import { getToday, formatLocalDate } from '@/lib/dateUtils'
 
 // ===== セグメント分類 =====
 const DIET_KEYWORDS = [
@@ -94,8 +95,8 @@ export default function RepeatPage() {
   const [period, setPeriod] = useState('month')
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState(getToday())
+  const [endDate, setEndDate] = useState(getToday())
 
   // 整体用コホート
   const [seikotsuCohorts, setSeikotsuCohorts] = useState<SeikotsuCohort[]>([])
@@ -124,11 +125,11 @@ export default function RepeatPage() {
       // ===== 全体: 月別リピート率（既存比率） =====
       let qStart: string, qEnd: string
       if (period === 'day') {
-        qStart = qEnd = new Date().toISOString().split('T')[0]
+        qStart = qEnd = getToday()
       } else if (period === 'month') {
         qStart = selectedMonth + '-01'
         const d = new Date(qStart); d.setMonth(d.getMonth() + 1); d.setDate(0)
-        qEnd = d.toISOString().split('T')[0]
+        qEnd = formatLocalDate(d)
       } else if (period === 'year') {
         qStart = selectedYear + '-01-01'; qEnd = selectedYear + '-12-31'
       } else {

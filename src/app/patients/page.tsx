@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getClinicId } from '@/lib/clinic'
 import { fetchAllSlips } from '@/lib/fetchAll'
 import type { Patient } from '@/lib/types'
+import { getToday } from '@/lib/dateUtils'
 
 interface PatientWithStats extends Patient {
   calcVisitCount: number
@@ -178,7 +179,7 @@ export default function PatientsPage() {
       p.status === 'active' ? '通院中' : p.status === 'completed' ? '卒業' : '休止',
       String(p.calcLtv), String(p.calcVisitCount), p.calcLastVisit || ''
     ])
-    downloadFile(buildCsv(headers, rows), `患者一覧_${new Date().toISOString().split('T')[0]}.csv`)
+    downloadFile(buildCsv(headers, rows), `患者一覧_${getToday()}.csv`)
     setShowCsvModal(false)
   }
 
@@ -192,7 +193,7 @@ export default function PatientsPage() {
       (p.zipcode || '').replace(/[^\d-]/g, ''),
       p.prefecture || '', p.city || '', p.address || '', p.building || '', p.phone || '',
     ])
-    downloadFile(buildCsv(headers, rows), `DM宛名_${new Date().toISOString().split('T')[0]}.csv`)
+    downloadFile(buildCsv(headers, rows), `DM宛名_${getToday()}.csv`)
     setShowCsvModal(false)
   }
 

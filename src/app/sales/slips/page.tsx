@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Slip } from '@/lib/types'
 import { saleTabs } from '@/lib/saleTabs'
 import { fetchAllSlips } from '@/lib/fetchAll'
+import { getToday, formatLocalDate } from '@/lib/dateUtils'
 
 export default function SlipsPage() {
   const supabase = createClient()
@@ -14,8 +15,8 @@ export default function SlipsPage() {
   const [period, setPeriod] = useState('month')
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7))
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0])
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0])
+  const [startDate, setStartDate] = useState(getToday())
+  const [endDate, setEndDate] = useState(getToday())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -25,14 +26,14 @@ export default function SlipsPage() {
       let queryEnd: string
 
       if (period === 'day') {
-        queryStart = new Date().toISOString().split('T')[0]
+        queryStart = getToday()
         queryEnd = queryStart
       } else if (period === 'month') {
         queryStart = selectedMonth + '-01'
         const d = new Date(queryStart)
         d.setMonth(d.getMonth() + 1)
         d.setDate(0)
-        queryEnd = d.toISOString().split('T')[0]
+        queryEnd = formatLocalDate(d)
       } else if (period === 'year') {
         queryStart = selectedYear + '-01-01'
         queryEnd = selectedYear + '-12-31'

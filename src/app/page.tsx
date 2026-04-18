@@ -6,6 +6,7 @@ import AppShell from '@/components/AppShell'
 import { createClient } from '@/lib/supabase/client'
 import { getClinicId } from '@/lib/clinic'
 import type { Patient, Slip } from '@/lib/types'
+import { getToday } from '@/lib/dateUtils'
 
 interface TodaySlip extends Slip {
   patient?: Patient
@@ -61,7 +62,6 @@ function PaymentBadge({ slipId, current, onUpdate }: {
 export default function HomePage() {
   const supabase = createClient()
   const clinicId = getClinicId()
-  const getToday = () => new Date().toISOString().split('T')[0]
   const [today, setToday] = useState(getToday)
   const todayRef = useRef(today)
 
@@ -90,11 +90,22 @@ export default function HomePage() {
 
   // ===== 当日問い合わせクイック入力 =====
   const [quickInquiry, setQuickInquiry] = useState({ inquiries: 0, reservations: 0, inquiryChannel: '', reservationChannel: '', inquiryCategory: '' as '' | 'seitai' | 'diet', reservationCategory: '' as '' | 'seitai' | 'diet' })
-  const [quickDate, setQuickDate] = useState(new Date().toISOString().split('T')[0])
+  const [quickDate, setQuickDate] = useState(getToday)
   const [savingQuick, setSavingQuick] = useState(false)
   const [quickSaved, setQuickSaved] = useState(false)
   const [loadingStats, setLoadingStats] = useState(true)
   const [loadingSlips, setLoadingSlips] = useState(false)
+
+  // ===== 離脱・卒業入力 =====
+  interface StatusEntry { name: string; patientId: string; category: '' | 'seitai' | 'diet' }
+  const emptyEntry = (): StatusEntry => ({ name: '', patientId: '', category: '' })
+  const [statusDate, setStatusDate] = useState(getToday)
+  const [dropoutEntries, setDropoutEntries] = useState<StatusEntry[]>([emptyEntry()])
+  const [graduationEntries, setGraduationEntries] = useState<StatusEntry[]>([emptyEntry()])
+  const [savingStatus, setSavingStatus] = useState(false)
+  const [statusSaved, setStatusSaved] = useState(false)
+  const [patientSuggestions, setPatientSuggestions] = useState<{ id: string; name: string; customer_category: string }[]>([])
+  const [activeStatusField, setActiveStatusField] = useState<{ type: 'dropout' | 'graduation'; index: number } | null>(null)
 
   // ===== 問い合わせ入力パネル =====
   const [inquiryOpen, setInquiryOpen] = useState(false)
@@ -109,6 +120,13 @@ export default function HomePage() {
   const [savingInquiry, setSavingInquiry] = useState(false)
   const [inquirySaved, setInquirySaved] = useState(false)
   const [loadingInquiry, setLoadingInquiry] = useState(false)
+
+  // サジェスト外クリックで閉じる
+  useEffect(() => {
+    const handleClick = () => { setPatientSuggestions([]); setActiveStatusField(null) }
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [])
 
   // ===== 統計 =====
   useEffect(() => {
@@ -324,6 +342,80 @@ export default function HomePage() {
     setSavingInquiry(false)
     setInquirySaved(true)
     setTimeout(() => setInquirySaved(false), 3000)
+  }
+
+  // ===== 離脱・卒業：患者名サジェスト =====
+  const searchPatients = async (query: string) => {
+    if (query.length < 1) { setPatientSuggestions([]); return }
+    const { data } = await supabase.from('cm_patients')
+      .select('id, name, customer_category')
+      .eq('clinic_id', clinicId)
+      .eq('status', 'active')
+      .or(`name.ilike.%${query}%,furigana.ilike.%${query}%`)
+      .limit(10)
+    setPatientSuggestions(data || [])
+  }
+
+  const updateStatusEntry = (type: 'dropout' | 'graduation', index: number, field: keyof StatusEntry, value: string) => {
+    const setter = type === 'dropout' ? setDropoutEntries : setGraduationEntries
+    setter(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e))
+  }
+
+  const addStatusEntry = (type: 'dropout' | 'graduation') => {
+    const setter = type === 'dropout' ? setDropoutEntries : setGraduationEntries
+    setter(prev => [...prev, emptyEntry()])
+  }
+
+  const removeStatusEntry = (type: 'dropout' | 'graduation', index: number) => {
+    const setter = type === 'dropout' ? setDropoutEntries : setGraduationEntries
+    setter(prev => prev.length <= 1 ? [emptyEntry()] : prev.filter((_, i) => i !== index))
+  }
+
+  const selectPatientSuggestion = (type: 'dropout' | 'graduation', index: number, patient: { id: string; name: string; customer_category: string }) => {
+    const setter = type === 'dropout' ? setDropoutEntries : setGraduationEntries
+    const cat = patient.customer_category === 'ダイエット' ? 'diet' : patient.customer_category === '整体' ? 'seitai' : ''
+    setter(prev => prev.map((e, i) => i === index ? { ...e, name: patient.name, patientId: patient.id, category: cat as '' | 'seitai' | 'diet' } : e))
+    setPatientSuggestions([])
+    setActiveStatusField(null)
+  }
+
+  const saveStatusEntries = async () => {
+    const allEntries = [
+      ...dropoutEntries.filter(e => e.patientId).map(e => ({ ...e, status: 'inactive' as const })),
+      ...graduationEntries.filter(e => e.patientId).map(e => ({ ...e, status: 'completed' as const })),
+    ]
+    if (allEntries.length === 0) { alert('患者を選択してください'); return }
+    const missingCategory = allEntries.find(e => !e.category)
+    if (missingCategory) { alert(`「${missingCategory.name}」の区分（整体／ダイエット）を選択してください`); return }
+
+    setSavingStatus(true)
+    setStatusSaved(false)
+    try {
+      for (const entry of allEntries) {
+        await supabase.from('cm_patients').update({
+          status: entry.status,
+          status_date: statusDate,
+          status_reason: entry.status === 'inactive' ? '離脱' : '卒業',
+          customer_category: entry.category === 'diet' ? 'ダイエット' : '整体',
+        }).eq('id', entry.patientId).eq('clinic_id', clinicId)
+      }
+      setStatusSaved(true)
+      setDropoutEntries([emptyEntry()])
+      setGraduationEntries([emptyEntry()])
+      // 離脱患者リストをリフレッシュ
+      const { data } = await supabase.from('cm_patients')
+        .select('id, name, status_date, status_reason')
+        .eq('clinic_id', clinicId)
+        .eq('status', 'inactive')
+        .order('status_date', { ascending: false })
+        .limit(20)
+      setDropoutPatients(data || [])
+      setTimeout(() => setStatusSaved(false), 3000)
+    } catch (e) {
+      alert('保存失敗: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setSavingStatus(false)
+    }
   }
 
   const handlePaymentUpdate = async (slipId: string, method: PaymentMethod) => {
@@ -778,6 +870,131 @@ export default function HomePage() {
                 </button>
                 <p className="text-[10px] text-gray-400 text-center">※ 営業データの新規集客に自動反映されます</p>
               </div>
+            </div>
+
+            {/* ===== 離脱・卒業登録 ===== */}
+            <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
+              <h2 className="font-bold text-gray-800 text-base mb-3 flex items-center gap-2">
+                <span>📋</span> 離脱・卒業登録
+              </h2>
+              <input type="date" value={statusDate}
+                onChange={e => setStatusDate(e.target.value)}
+                className="w-full mb-4 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300" />
+
+              {/* 離脱 */}
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-red-600 mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500" /> 離脱
+                </h3>
+                <div className="space-y-2">
+                  {dropoutEntries.map((entry, i) => (
+                    <div key={i} className="relative">
+                      <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            placeholder="患者名を入力"
+                            value={entry.name}
+                            onChange={e => {
+                              updateStatusEntry('dropout', i, 'name', e.target.value)
+                              updateStatusEntry('dropout', i, 'patientId', '')
+                              setActiveStatusField({ type: 'dropout', index: i })
+                              searchPatients(e.target.value)
+                            }}
+                            onFocus={() => { setActiveStatusField({ type: 'dropout', index: i }); if (entry.name) searchPatients(entry.name) }}
+                            className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-1 ${
+                              entry.patientId ? 'border-green-300 bg-green-50 focus:ring-green-300' : 'border-red-200 focus:ring-red-300'
+                            }`}
+                          />
+                          {activeStatusField?.type === 'dropout' && activeStatusField.index === i && patientSuggestions.length > 0 && (
+                            <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                              {patientSuggestions.map(p => (
+                                <button key={p.id} onClick={() => selectPatientSuggestion('dropout', i, p)}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex justify-between items-center">
+                                  <span className="font-medium">{p.name}</span>
+                                  {p.customer_category && <span className="text-[10px] text-gray-400">{p.customer_category}</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <select value={entry.category}
+                          onChange={e => updateStatusEntry('dropout', i, 'category', e.target.value)}
+                          className="w-24 px-2 py-2 border border-red-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-red-300">
+                          <option value="">区分</option>
+                          <option value="seitai">整体</option>
+                          <option value="diet">ダイエット</option>
+                        </select>
+                        <button onClick={() => removeStatusEntry('dropout', i)}
+                          className="text-gray-300 hover:text-red-400 text-lg leading-none shrink-0">✕</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button onClick={() => addStatusEntry('dropout')}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium">+ 追加</button>
+                </div>
+              </div>
+
+              {/* 卒業 */}
+              <div className="mb-4">
+                <h3 className="text-sm font-bold text-blue-600 mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" /> 卒業
+                </h3>
+                <div className="space-y-2">
+                  {graduationEntries.map((entry, i) => (
+                    <div key={i} className="relative">
+                      <div className="flex gap-2 items-center">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            placeholder="患者名を入力"
+                            value={entry.name}
+                            onChange={e => {
+                              updateStatusEntry('graduation', i, 'name', e.target.value)
+                              updateStatusEntry('graduation', i, 'patientId', '')
+                              setActiveStatusField({ type: 'graduation', index: i })
+                              searchPatients(e.target.value)
+                            }}
+                            onFocus={() => { setActiveStatusField({ type: 'graduation', index: i }); if (entry.name) searchPatients(entry.name) }}
+                            className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-1 ${
+                              entry.patientId ? 'border-green-300 bg-green-50 focus:ring-green-300' : 'border-blue-200 focus:ring-blue-300'
+                            }`}
+                          />
+                          {activeStatusField?.type === 'graduation' && activeStatusField.index === i && patientSuggestions.length > 0 && (
+                            <div className="absolute z-30 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                              {patientSuggestions.map(p => (
+                                <button key={p.id} onClick={() => selectPatientSuggestion('graduation', i, p)}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex justify-between items-center">
+                                  <span className="font-medium">{p.name}</span>
+                                  {p.customer_category && <span className="text-[10px] text-gray-400">{p.customer_category}</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <select value={entry.category}
+                          onChange={e => updateStatusEntry('graduation', i, 'category', e.target.value)}
+                          className="w-24 px-2 py-2 border border-blue-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-300">
+                          <option value="">区分</option>
+                          <option value="seitai">整体</option>
+                          <option value="diet">ダイエット</option>
+                        </select>
+                        <button onClick={() => removeStatusEntry('graduation', i)}
+                          className="text-gray-300 hover:text-blue-400 text-lg leading-none shrink-0">✕</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button onClick={() => addStatusEntry('graduation')}
+                    className="text-xs text-blue-500 hover:text-blue-700 font-medium">+ 追加</button>
+                </div>
+              </div>
+
+              <button onClick={saveStatusEntries} disabled={savingStatus}
+                className="w-full py-2.5 rounded-xl text-white text-sm font-bold transition-colors disabled:opacity-50"
+                style={{ background: statusSaved ? '#10b981' : '#14252A' }}>
+                {savingStatus ? '保存中...' : statusSaved ? '✓ 登録しました' : '登録する'}
+              </button>
+              <p className="text-[10px] text-gray-400 text-center mt-1.5">※ 顧客名簿のステータスに自動反映されます</p>
             </div>
           </div>
 

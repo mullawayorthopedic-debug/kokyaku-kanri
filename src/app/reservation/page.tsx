@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Reservation, Patient } from '@/lib/types'
 import { RESERVATION_STATUSES } from '@/lib/types'
 import { getClinicId } from '@/lib/clinic'
+import { getToday, formatLocalDate } from '@/lib/dateUtils'
 
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 9) // 9:00 ~ 21:00
 const SLOT_HEIGHT = 60
@@ -41,7 +42,7 @@ export default function ReservationPage() {
   const [form, setForm] = useState({
     patient_id: '',
     patient_name: '',
-    reservation_date: new Date().toISOString().split('T')[0],
+    reservation_date: getToday(),
     start_time: '10:00',
     end_time: '11:00',
     menu_name: '',
@@ -54,8 +55,8 @@ export default function ReservationPage() {
 
   const loadReservations = useCallback(async () => {
     setLoading(true)
-    const startDate = weekDates[0].toISOString().split('T')[0]
-    const endDate = weekDates[6].toISOString().split('T')[0]
+    const startDate = formatLocalDate(weekDates[0])
+    const endDate = formatLocalDate(weekDates[6])
 
     const { data } = await supabase
       .from('cm_reservations')
@@ -92,7 +93,7 @@ export default function ReservationPage() {
     setForm({
       patient_id: '',
       patient_name: '',
-      reservation_date: date || new Date().toISOString().split('T')[0],
+      reservation_date: date || getToday(),
       start_time: time || '10:00',
       end_time: time ? formatTime(parseInt(time.split(':')[0]) + 1) : '11:00',
       menu_name: '',
@@ -195,7 +196,7 @@ export default function ReservationPage() {
             <button onClick={() => navigateWeek(1)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm hover:bg-gray-50">&gt;</button>
             <input
               type="date"
-              value={currentDate.toISOString().split('T')[0]}
+              value={formatLocalDate(currentDate)}
               onChange={e => {
                 if (e.target.value) setCurrentDate(new Date(e.target.value + 'T00:00:00'))
               }}
@@ -324,8 +325,8 @@ export default function ReservationPage() {
               <div className="flex border-b sticky top-0 bg-white z-10">
                 <div className="w-16 flex-shrink-0 border-r" />
                 {(viewMode === 'day' ? [currentDate] : weekDates).map((date, i) => {
-                  const dateStr = date.toISOString().split('T')[0]
-                  const isToday = dateStr === new Date().toISOString().split('T')[0]
+                  const dateStr = formatLocalDate(date)
+                  const isToday = dateStr === getToday()
                   const dayIndex = date.getDay()
                   return (
                     <div
@@ -350,7 +351,7 @@ export default function ReservationPage() {
                     {formatTime(hour)}
                   </div>
                   {(viewMode === 'day' ? [currentDate] : weekDates).map((date, i) => {
-                    const dateStr = date.toISOString().split('T')[0]
+                    const dateStr = formatLocalDate(date)
                     const cellReservations = getReservationsForDateHour(dateStr, hour)
                     return (
                       <div

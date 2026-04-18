@@ -8,6 +8,7 @@ import VoiceInput from '@/components/VoiceInput'
 import { createClient } from '@/lib/supabase/client'
 import { PAYMENT_METHODS } from '@/lib/types'
 import type { Patient } from '@/lib/types'
+import { getToday } from '@/lib/dateUtils'
 import { normalizeName } from '@/lib/nameMatch'
 import { getClinicId } from '@/lib/clinic'
 
@@ -54,7 +55,7 @@ function VisitForm() {
 
   const [form, setForm] = useState({
     patient_id: preselectedPatientId,
-    visit_date: new Date().toISOString().split('T')[0],
+    visit_date: getToday(),
     menu_name: '',
     base_price: 0,
     option_names: [] as string[],
@@ -357,9 +358,9 @@ function VisitForm() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => update('visit_date', new Date().toISOString().split('T')[0])}
+            onClick={() => update('visit_date', getToday())}
             className={`flex-1 py-2.5 rounded-xl text-sm font-medium border-2 transition-all ${
-              form.visit_date === new Date().toISOString().split('T')[0]
+              form.visit_date === getToday()
                 ? 'border-[#14252A] bg-[#14252A] text-white'
                 : 'border-gray-200 text-gray-600'
             }`}
