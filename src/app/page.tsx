@@ -155,7 +155,9 @@ export default function HomePage() {
     const loadLastYearStats = async () => {
       const lastYearDate = today.replace(/^\d{4}/, String(parseInt(today.slice(0, 4)) - 1))
       const lastYearMonthStart = lastYearDate.slice(0, 7) + '-01'
-      const lastYearMonthEnd = lastYearDate.slice(0, 7) + '-31'
+      // 前年同月の末日を正しく計算（月によって28/29/30/31日が異なるため）
+      const [lyYear, lyMonth] = lastYearDate.slice(0, 7).split('-').map(Number)
+      const lastYearMonthEnd = `${lyYear}-${String(lyMonth).padStart(2, '0')}-${String(new Date(lyYear, lyMonth, 0).getDate()).padStart(2, '0')}`
       const [lyTodayRes, lyMonthRes] = await Promise.all([
         supabase.from('cm_slips').select('id, total_price').eq('clinic_id', clinicId).eq('visit_date', lastYearDate),
         supabase.from('cm_slips').select('id, total_price', { count: 'exact' }).eq('clinic_id', clinicId).gte('visit_date', lastYearMonthStart).lte('visit_date', lastYearMonthEnd),
