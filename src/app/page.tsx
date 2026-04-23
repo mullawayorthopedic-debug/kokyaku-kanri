@@ -87,6 +87,7 @@ export default function HomePage() {
   const [todayPatients, setTodayPatients] = useState<{ id: string; name: string }[]>([])
   const [dropoutPatients, setDropoutPatients] = useState<{ id: string; name: string; status_date: string | null; status_reason: string }[]>([])
   const [stats, setStats] = useState({ totalPatients: 0, monthVisits: 0, todayVisits: 0, todayRevenue: 0, monthRevenue: 0 })
+  const [lastYearStats, setLastYearStats] = useState<{ monthVisits: number; todayVisits: number; todayRevenue: number; monthRevenue: number } | null>(null)
 
   // ===== 当日問い合わせクイック入力 =====
   const [quickInquiry, setQuickInquiry] = useState({ inquiries: 0, reservations: 0, inquiryChannel: '', reservationChannel: '', inquiryCategory: '' as '' | 'seitai' | 'diet', reservationCategory: '' as '' | 'seitai' | 'diet' })
@@ -149,6 +150,27 @@ export default function HomePage() {
       setLoadingStats(false)
     }
     loadStats()
+
+    // 前年同日・同月の統計を取得
+    const loadLastYearStats = async () => {
+      const lastYearDate = today.replace(/^\d{4}/, String(parseInt(today.slice(0, 4)) - 1))
+      const lastYearMonthStart = lastYearDate.slice(0, 7) + '-01'
+      const lastYearMonthEnd = lastYearDate.slice(0, 7) + '-31'
+      const [lyTodayRes, lyMonthRes] = await Promise.all([
+        supabase.from('cm_slips').select('id, total_price').eq('clinic_id', clinicId).eq('visit_date', lastYearDate),
+        supabase.from('cm_slips').select('id, total_price', { count: 'exact' }).eq('clinic_id', clinicId).gte('visit_date', lastYearMonthStart).lte('visit_date', lastYearMonthEnd),
+      ])
+      const lyTodaySlips = lyTodayRes.data || []
+      const lyTodayRevenue = lyTodaySlips.reduce((sum: number, s: { total_price?: number }) => sum + (s.total_price || 0), 0)
+      const lyMonthRevenue = (lyMonthRes.data || []).reduce((sum: number, s: { total_price?: number }) => sum + (s.total_price || 0), 0)
+      setLastYearStats({
+        todayVisits: lyTodaySlips.length,
+        todayRevenue: lyTodayRevenue,
+        monthVisits: lyMonthRes.count || 0,
+        monthRevenue: lyMonthRevenue,
+      })
+    }
+    loadLastYearStats()
 
     // 離脱患者を取得
     const loadDropouts = async () => {
@@ -463,21 +485,41 @@ export default function HomePage() {
             <div className="text-xl mb-1">📋</div>
             <p className="text-2xl font-bold text-blue-600">{stats.monthVisits}</p>
             <p className="text-xs text-gray-500 mt-0.5">今月の施術</p>
+            {lastYearStats && (
+              <p className={`text-[10px] mt-1 font-medium ${stats.monthVisits >= lastYearStats.monthVisits ? 'text-green-600' : 'text-red-500'}`}>
+                前年 {lastYearStats.monthVisits} （{stats.monthVisits >= lastYearStats.monthVisits ? '+' : ''}{stats.monthVisits - lastYearStats.monthVisits}）
+              </p>
+            )}
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 text-center border-l-4 border-l-green-500">
             <div className="text-xl mb-1">✅</div>
             <p className="text-2xl font-bold text-green-600">{stats.todayVisits}</p>
             <p className="text-xs text-gray-500 mt-0.5">本日の施術</p>
+            {lastYearStats && (
+              <p className={`text-[10px] mt-1 font-medium ${stats.todayVisits >= lastYearStats.todayVisits ? 'text-green-600' : 'text-red-500'}`}>
+                前年 {lastYearStats.todayVisits} （{stats.todayVisits >= lastYearStats.todayVisits ? '+' : ''}{stats.todayVisits - lastYearStats.todayVisits}）
+              </p>
+            )}
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 text-center border-l-4 border-l-amber-500">
             <div className="text-xl mb-1">💰</div>
             <p className="text-2xl font-bold text-amber-600">{loadingStats ? '-' : stats.todayRevenue.toLocaleString()}</p>
             <p className="text-xs text-gray-500 mt-0.5">本日の売上 円</p>
+            {lastYearStats && !loadingStats && (
+              <p className={`text-[10px] mt-1 font-medium ${stats.todayRevenue >= lastYearStats.todayRevenue ? 'text-green-600' : 'text-red-500'}`}>
+                前年 {lastYearStats.todayRevenue.toLocaleString()} （{stats.todayRevenue >= lastYearStats.todayRevenue ? '+' : ''}{(stats.todayRevenue - lastYearStats.todayRevenue).toLocaleString()}）
+              </p>
+            )}
           </div>
           <div className="bg-white rounded-xl shadow-sm p-4 text-center border-l-4 border-l-rose-500">
             <div className="text-xl mb-1">📈</div>
             <p className="text-2xl font-bold text-rose-600">{loadingStats ? '-' : stats.monthRevenue.toLocaleString()}</p>
             <p className="text-xs text-gray-500 mt-0.5">当月の売上 円</p>
+            {lastYearStats && !loadingStats && (
+              <p className={`text-[10px] mt-1 font-medium ${stats.monthRevenue >= lastYearStats.monthRevenue ? 'text-green-600' : 'text-red-500'}`}>
+                前年 {lastYearStats.monthRevenue.toLocaleString()} （{stats.monthRevenue >= lastYearStats.monthRevenue ? '+' : ''}{(stats.monthRevenue - lastYearStats.monthRevenue).toLocaleString()}）
+              </p>
+            )}
           </div>
         </div>
 
