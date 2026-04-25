@@ -57,6 +57,7 @@ function VisitForm() {
     patient_id: preselectedPatientId,
     visit_date: getToday(),
     menu_name: '',
+    selected_base_menus: [] as string[],
     base_price: 0,
     option_names: [] as string[],
     option_price: 0,
@@ -69,13 +70,22 @@ function VisitForm() {
 
   useEffect(() => {
     const load = async () => {
-      const [patientsRes, baseMenusRes, optionMenusRes] = await Promise.all([
+      const [patientsRes, baseMenusRes, optionMenusRes, slipsRes] = await Promise.all([
         supabase.from('cm_patients').select('*').eq('clinic_id', clinicId).eq('status', 'active').order('name'),
         supabase.from('cm_base_menus').select('*').eq('clinic_id', clinicId).eq('is_active', true).order('sort_order'),
         supabase.from('cm_option_menus').select('*').eq('clinic_id', clinicId).eq('is_active', true).order('sort_order'),
+        supabase.from('cm_slips').select('menu_name').eq('clinic_id', clinicId),
       ])
       setPatients(patientsRes.data || [])
-      setBaseMenus(baseMenusRes.data || [])
+      // 利用回数でソート（多い順）
+      const menus = baseMenusRes.data || []
+      const slips = slipsRes.data || []
+      const usageCount: Record<string, number> = {}
+      slips.forEach((s: { menu_name: string | null }) => {
+        if (s.menu_name) usageCount[s.menu_name] = (usageCount[s.menu_name] || 0) + 1
+      })
+      menus.sort((a: BaseMenu, b: BaseMenu) => (usageCount[b.name] || 0) - (usageCount[a.name] || 0))
+      setBaseMenus(menus)
       setOptionMenus(optionMenusRes.data || [])
     }
     load()
@@ -113,16 +123,25 @@ function VisitForm() {
 
   const selectedPatient = patients.find(p => p.id === form.patient_id)
 
-  // 基本メニュー選択
+  // 基本メニュー選択（複数選択対応）
   const selectBaseMenu = (menu: BaseMenu) => {
-    const newTotal = menu.price + form.option_price
-    setForm(prev => ({
-      ...prev,
-      menu_name: menu.name,
-      base_price: menu.price,
-      duration_minutes: menu.duration_minutes,
-      total_price: newTotal,
-    }))
+    setForm(prev => {
+      const exists = prev.selected_base_menus.includes(menu.name)
+      const newSelected = exists
+        ? prev.selected_base_menus.filter(n => n !== menu.name)
+        : [...prev.selected_base_menus, menu.name]
+      const selectedMenuData = baseMenus.filter(m => newSelected.includes(m.name))
+      const newBasePrice = selectedMenuData.reduce((sum, m) => sum + m.price, 0)
+      const newDuration = selectedMenuData.reduce((sum, m) => sum + m.duration_minutes, 0)
+      return {
+        ...prev,
+        selected_base_menus: newSelected,
+        menu_name: newSelected.join('・'),
+        base_price: newBasePrice,
+        duration_minutes: newDuration,
+        total_price: newBasePrice + prev.option_price,
+      }
+    })
   }
 
   // オプションメニュー切り替え
@@ -149,18 +168,16 @@ function VisitForm() {
     setSearch(text)
   }, [])
 
-  // 音声入力でメニュー名をマッチング
+  // 音声入力でメニュー名をマッチング（複数対応：既存選択に追加）
   const handleVoiceMenu = useCallback((text: string) => {
     const normalized = text.replace(/\s/g, '')
-    // 基本メニューからマッチング
     const match = baseMenus.find(m =>
       m.name.includes(normalized) || normalized.includes(m.name)
     )
     if (match) {
       selectBaseMenu(match)
     } else {
-      // マッチしなければ手入力用にメニュー名をセット
-      setForm(prev => ({ ...prev, menu_name: text }))
+      setForm(prev => ({ ...prev, menu_name: prev.selected_base_menus.length > 0 ? prev.selected_base_menus.join('・') + '・' + text : text }))
     }
   }, [baseMenus])
 
@@ -396,7 +413,7 @@ function VisitForm() {
                   key={m.id}
                   onClick={() => selectBaseMenu(m)}
                   className={`px-4 py-3 rounded-xl text-sm font-medium border-2 transition-all min-w-[100px] ${
-                    form.menu_name === m.name
+                    form.selected_base_menus.includes(m.name)
                       ? 'border-[#14252A] bg-[#14252A] text-white shadow-md'
                       : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:shadow-sm'
                   }`}
