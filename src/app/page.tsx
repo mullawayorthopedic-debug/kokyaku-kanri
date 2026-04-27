@@ -90,7 +90,10 @@ export default function HomePage() {
   const [lastYearStats, setLastYearStats] = useState<{ monthVisits: number; todayVisits: number; todayRevenue: number; monthRevenue: number } | null>(null)
 
   // ===== 当日問い合わせクイック入力 =====
-  const [quickInquiry, setQuickInquiry] = useState({ inquiries: 0, reservations: 0, inquiryChannel: '', reservationChannel: '', inquiryCategory: '' as '' | 'seitai' | 'diet', reservationCategory: '' as '' | 'seitai' | 'diet' })
+  interface QuickEntry { channel: string; category: '' | 'seitai' | 'diet' }
+  const emptyQuickEntry = (): QuickEntry => ({ channel: '', category: '' })
+  const [inquiryEntries, setInquiryEntries] = useState<QuickEntry[]>([])
+  const [reservationEntries, setReservationEntries] = useState<QuickEntry[]>([])
   const [quickDate, setQuickDate] = useState(getToday)
   const [savingQuick, setSavingQuick] = useState(false)
   const [quickSaved, setQuickSaved] = useState(false)
@@ -195,48 +198,55 @@ export default function HomePage() {
         .select('channel, category, inquiries, conversions')
         .eq('clinic_id', clinicId)
         .eq('date', quickDate)
-      const inqRow = data?.find(d => (d.inquiries || 0) > 0 && (d.conversions || 0) === 0)
-      const rsvRow = data?.find(d => (d.conversions || 0) > 0)
-      setQuickInquiry({
-        inquiries: inqRow?.inquiries || 0,
-        reservations: rsvRow?.conversions || 0,
-        inquiryChannel: inqRow?.channel || '',
-        reservationChannel: rsvRow?.channel || '',
-        inquiryCategory: (inqRow?.category as 'seitai' | 'diet' | undefined) || '',
-        reservationCategory: (rsvRow?.category as 'seitai' | 'diet' | undefined) || '',
+      const inqList: QuickEntry[] = []
+      const rsvList: QuickEntry[] = []
+      ;(data || []).forEach(d => {
+        const cat = (d.category as '' | 'seitai' | 'diet') || ''
+        const ch = d.channel || ''
+        // 問い合わせのみの件数（conversionsを引いた純粋な問い合わせ数）
+        const pureInq = Math.max(0, (d.inquiries || 0) - (d.conversions || 0))
+        for (let i = 0; i < pureInq; i++) inqList.push({ channel: ch, category: cat })
+        for (let i = 0; i < (d.conversions || 0); i++) rsvList.push({ channel: ch, category: cat })
       })
+      setInquiryEntries(inqList)
+      setReservationEntries(rsvList)
     }
     loadQuickInquiry()
   }, [quickDate, clinicId])
 
   const saveQuickInquiry = async () => {
-    if (quickInquiry.inquiries > 0 && (!quickInquiry.inquiryChannel || !quickInquiry.inquiryCategory)) {
-      alert('問い合わせの経路と区分（整体／ダイエット）を選択してください'); return
-    }
-    if (quickInquiry.reservations > 0 && (!quickInquiry.reservationChannel || !quickInquiry.reservationCategory)) {
-      alert('予約の経路と区分（整体／ダイエット）を選択してください'); return
-    }
+    const missingInq = inquiryEntries.find(e => !e.channel || !e.category)
+    if (missingInq) { alert('問い合わせの媒体と区分をすべて選択してください'); return }
+    const missingRsv = reservationEntries.find(e => !e.channel || !e.category)
+    if (missingRsv) { alert('予約の媒体と区分をすべて選択してください'); return }
+
     setSavingQuick(true)
     setQuickSaved(false)
     try {
-      const rows: { clinic_id: string; date: string; channel: string; category: string; inquiries: number; conversions: number }[] = []
+      // channel+category ごとに集計
+      const agg: Record<string, { inquiries: number; conversions: number }> = {}
+      inquiryEntries.forEach(e => {
+        const key = `${e.channel}::${e.category}`
+        if (!agg[key]) agg[key] = { inquiries: 0, conversions: 0 }
+        agg[key].inquiries++
+      })
+      reservationEntries.forEach(e => {
+        const key = `${e.channel}::${e.category}`
+        if (!agg[key]) agg[key] = { inquiries: 0, conversions: 0 }
+        agg[key].inquiries++
+        agg[key].conversions++
+      })
 
-      const sameKey = quickInquiry.inquiryChannel === quickInquiry.reservationChannel
-        && quickInquiry.inquiryCategory === quickInquiry.reservationCategory
+      // 既存データを削除してから挿入（日付単位でクリア）
+      await supabase.from('cm_daily_inquiries').delete()
+        .eq('clinic_id', clinicId).eq('date', quickDate)
 
-      if (quickInquiry.inquiries > 0 && quickInquiry.inquiryChannel) {
-        if (sameKey && quickInquiry.reservations > 0) {
-          rows.push({ clinic_id: clinicId, date: quickDate, channel: quickInquiry.inquiryChannel, category: quickInquiry.inquiryCategory, inquiries: quickInquiry.inquiries, conversions: quickInquiry.reservations })
-        } else {
-          rows.push({ clinic_id: clinicId, date: quickDate, channel: quickInquiry.inquiryChannel, category: quickInquiry.inquiryCategory, inquiries: quickInquiry.inquiries, conversions: 0 })
-        }
-      }
-      if (quickInquiry.reservations > 0 && quickInquiry.reservationChannel && !sameKey) {
-        rows.push({ clinic_id: clinicId, date: quickDate, channel: quickInquiry.reservationChannel, category: quickInquiry.reservationCategory, inquiries: quickInquiry.reservations, conversions: quickInquiry.reservations })
-      }
-
+      const rows = Object.entries(agg).map(([key, val]) => {
+        const [channel, category] = key.split('::')
+        return { clinic_id: clinicId, date: quickDate, channel, category, inquiries: val.inquiries, conversions: val.conversions }
+      })
       if (rows.length > 0) {
-        await supabase.from('cm_daily_inquiries').upsert(rows, { onConflict: 'clinic_id,date,channel,category' })
+        await supabase.from('cm_daily_inquiries').insert(rows)
       }
       setQuickSaved(true)
       setTimeout(() => setQuickSaved(false), 2000)
@@ -864,49 +874,90 @@ export default function HomePage() {
               <input type="date" value={quickDate} max={today}
                 onChange={e => setQuickDate(e.target.value)}
                 className="w-full mb-3 px-3 py-2 border border-orange-200 rounded-lg text-sm focus:outline-none focus:border-orange-400" />
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">問い合わせ数</label>
-                    <input type="number" min="0" value={quickInquiry.inquiries}
-                      onChange={e => setQuickInquiry({ ...quickInquiry, inquiries: parseInt(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border-2 border-orange-200 rounded-xl text-center text-2xl font-bold text-orange-600 focus:outline-none focus:border-orange-400" />
-                    <select value={quickInquiry.inquiryChannel}
-                      onChange={e => setQuickInquiry({ ...quickInquiry, inquiryChannel: e.target.value })}
-                      className="w-full mt-2 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400">
-                      <option value="">媒体を選択</option>
-                      <option value="LINE">LINE</option>
-                      <option value="電話">電話</option>
-                      <option value="ホットペッパー">ホットペッパー</option>
-                    </select>
-                    <select value={quickInquiry.inquiryCategory}
-                      onChange={e => setQuickInquiry({ ...quickInquiry, inquiryCategory: e.target.value as '' | 'seitai' | 'diet' })}
-                      className="w-full mt-2 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400">
-                      <option value="">区分を選択</option>
-                      <option value="seitai">整体</option>
-                      <option value="diet">ダイエット</option>
-                    </select>
+              <div className="space-y-4">
+
+                {/* 問い合わせ */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-orange-600 flex items-center gap-1.5">
+                      📨 問い合わせ
+                      <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full text-[10px]">{inquiryEntries.length}件</span>
+                    </label>
+                    <button onClick={() => setInquiryEntries(prev => [...prev, emptyQuickEntry()])}
+                      className="text-[11px] text-orange-600 font-bold hover:text-orange-800">+ 追加</button>
                   </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">予約数</label>
-                    <input type="number" min="0" value={quickInquiry.reservations}
-                      onChange={e => setQuickInquiry({ ...quickInquiry, reservations: parseInt(e.target.value) || 0 })}
-                      className="w-full px-3 py-2 border-2 border-blue-200 rounded-xl text-center text-2xl font-bold text-blue-600 focus:outline-none focus:border-blue-400" />
-                    <select value={quickInquiry.reservationChannel}
-                      onChange={e => setQuickInquiry({ ...quickInquiry, reservationChannel: e.target.value })}
-                      className="w-full mt-2 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400">
-                      <option value="">経路を選択</option>
-                      {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
-                    </select>
-                    <select value={quickInquiry.reservationCategory}
-                      onChange={e => setQuickInquiry({ ...quickInquiry, reservationCategory: e.target.value as '' | 'seitai' | 'diet' })}
-                      className="w-full mt-2 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400">
-                      <option value="">区分を選択</option>
-                      <option value="seitai">整体</option>
-                      <option value="diet">ダイエット</option>
-                    </select>
-                  </div>
+                  {inquiryEntries.length === 0 ? (
+                    <button onClick={() => setInquiryEntries([emptyQuickEntry()])}
+                      className="w-full py-2 border-2 border-dashed border-orange-200 rounded-xl text-xs text-orange-400 hover:border-orange-300 hover:text-orange-500">
+                      + 問い合わせを追加
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      {inquiryEntries.map((entry, i) => (
+                        <div key={i} className="flex gap-1.5 items-center bg-orange-50/50 rounded-lg px-2 py-1.5">
+                          <span className="text-[10px] text-orange-400 font-bold w-4 shrink-0">{i + 1}</span>
+                          <select value={entry.channel}
+                            onChange={e => setInquiryEntries(prev => prev.map((x, j) => j === i ? { ...x, channel: e.target.value } : x))}
+                            className="flex-1 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400 bg-white">
+                            <option value="">媒体</option>
+                            {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                          </select>
+                          <select value={entry.category}
+                            onChange={e => setInquiryEntries(prev => prev.map((x, j) => j === i ? { ...x, category: e.target.value as '' | 'seitai' | 'diet' } : x))}
+                            className="w-20 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400 bg-white">
+                            <option value="">区分</option>
+                            <option value="seitai">整体</option>
+                            <option value="diet">ダイエット</option>
+                          </select>
+                          <button onClick={() => setInquiryEntries(prev => prev.filter((_, j) => j !== i))}
+                            className="text-gray-300 hover:text-red-400 text-sm leading-none shrink-0">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                {/* 予約 */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-blue-600 flex items-center gap-1.5">
+                      📅 予約（CV）
+                      <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full text-[10px]">{reservationEntries.length}件</span>
+                    </label>
+                    <button onClick={() => setReservationEntries(prev => [...prev, emptyQuickEntry()])}
+                      className="text-[11px] text-blue-600 font-bold hover:text-blue-800">+ 追加</button>
+                  </div>
+                  {reservationEntries.length === 0 ? (
+                    <button onClick={() => setReservationEntries([emptyQuickEntry()])}
+                      className="w-full py-2 border-2 border-dashed border-blue-200 rounded-xl text-xs text-blue-400 hover:border-blue-300 hover:text-blue-500">
+                      + 予約を追加
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      {reservationEntries.map((entry, i) => (
+                        <div key={i} className="flex gap-1.5 items-center bg-blue-50/50 rounded-lg px-2 py-1.5">
+                          <span className="text-[10px] text-blue-400 font-bold w-4 shrink-0">{i + 1}</span>
+                          <select value={entry.channel}
+                            onChange={e => setReservationEntries(prev => prev.map((x, j) => j === i ? { ...x, channel: e.target.value } : x))}
+                            className="flex-1 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400 bg-white">
+                            <option value="">媒体</option>
+                            {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                          </select>
+                          <select value={entry.category}
+                            onChange={e => setReservationEntries(prev => prev.map((x, j) => j === i ? { ...x, category: e.target.value as '' | 'seitai' | 'diet' } : x))}
+                            className="w-20 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400 bg-white">
+                            <option value="">区分</option>
+                            <option value="seitai">整体</option>
+                            <option value="diet">ダイエット</option>
+                          </select>
+                          <button onClick={() => setReservationEntries(prev => prev.filter((_, j) => j !== i))}
+                            className="text-gray-300 hover:text-red-400 text-sm leading-none shrink-0">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <button onClick={saveQuickInquiry} disabled={savingQuick}
                   className="w-full py-2.5 rounded-xl text-white text-sm font-bold transition-colors disabled:opacity-50"
                   style={{ background: quickSaved ? '#10b981' : '#ea580c' }}>
