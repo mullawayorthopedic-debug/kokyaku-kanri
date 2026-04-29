@@ -902,6 +902,7 @@ export default function HomePage() {
                             <option value="">媒体</option>
                             <option value="LINE">LINE</option>
                             <option value="電話">電話</option>
+                            <option value="HPB">HPB</option>
                           </select>
                           <select value={entry.category}
                             onChange={e => setInquiryEntries(prev => prev.map((x, j) => j === i ? { ...x, category: e.target.value as '' | 'seitai' | 'diet' } : x))}
