@@ -121,6 +121,98 @@ export default function DailyReportPage() {
   const fmt = (n: number) => n === 0 ? '-' : n.toLocaleString()
   const fmtNum = (n: number) => n === 0 ? '-' : n.toLocaleString()
 
+  const exportCSV = () => {
+    const BOM = '\uFEFF'
+    const header = ['日付', '曜日', '売上', '現金', 'クレジット', 'QR', 'PayPay', '客数', '新規', 'リピート']
+    const csvRows = [header.join(',')]
+
+    for (const row of rows) {
+      const d = new Date(row.date + 'T00:00:00')
+      const dow = DOW_JA[d.getDay()]
+      csvRows.push([
+        row.date, dow, row.revenue, row.cash, row.credit, row.qr, row.paypay,
+        row.visits, row.newPatients, row.repeat,
+      ].join(','))
+    }
+
+    // 合計行
+    csvRows.push([
+      '合計', '', totals.revenue, totals.cash, totals.credit, totals.qr, totals.paypay,
+      totals.visits, totals.newPatients, totals.repeat,
+    ].join(','))
+
+    const blob = new Blob([BOM + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `日報集計_${selectedMonth}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportPDF = () => {
+    const [year, month] = selectedMonth.split('-')
+    const title = `日報集計 ${year}年${month}月`
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) return
+
+    const tableRows = rows.map(row => {
+      const d = new Date(row.date + 'T00:00:00')
+      const dd = String(d.getDate()).padStart(2, '0')
+      const dow = DOW_JA[d.getDay()]
+      const f = (n: number) => n === 0 ? '-' : n.toLocaleString()
+      return `<tr>
+        <td>${dd}(${dow})</td>
+        <td class="num">${f(row.revenue)}</td>
+        <td class="num">${f(row.cash)}</td>
+        <td class="num">${f(row.credit)}</td>
+        <td class="num">${f(row.qr)}</td>
+        <td class="num">${f(row.paypay)}</td>
+        <td class="num">${f(row.visits)}</td>
+        <td class="num">${f(row.newPatients)}</td>
+        <td class="num">${f(row.repeat)}</td>
+      </tr>`
+    }).join('')
+
+    const f = (n: number) => n.toLocaleString()
+    const totalRow = `<tr class="total">
+      <td>合計</td>
+      <td class="num">${f(totals.revenue)}</td>
+      <td class="num">${f(totals.cash)}</td>
+      <td class="num">${f(totals.credit)}</td>
+      <td class="num">${f(totals.qr)}</td>
+      <td class="num">${f(totals.paypay)}</td>
+      <td class="num">${f(totals.visits)}</td>
+      <td class="num">${f(totals.newPatients)}</td>
+      <td class="num">${f(totals.repeat)}</td>
+    </tr>`
+
+    printWindow.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title>
+      <style>
+        body { font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif; padding: 20px; color: #333; }
+        h1 { font-size: 18px; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #ccc; padding: 6px 8px; }
+        th { background: #14252A; color: #fff; font-weight: 500; font-size: 11px; }
+        .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .total { background: #f0f0f0; font-weight: bold; }
+        @media print { body { padding: 0; } }
+      </style>
+    </head><body>
+      <h1>${title}</h1>
+      <table>
+        <thead><tr>
+          <th>日（曜日）</th><th>売上</th><th>現金</th><th>クレジット</th>
+          <th>QR</th><th>PayPay</th><th>客数</th><th>新規</th><th>リピート</th>
+        </tr></thead>
+        <tbody>${tableRows}${totalRow}</tbody>
+      </table>
+    </body></html>`)
+    printWindow.document.close()
+    printWindow.onload = () => { printWindow.print() }
+  }
+
   const totals = rows.reduce(
     (acc, r) => ({
       revenue: acc.revenue + r.revenue,
@@ -150,14 +242,31 @@ export default function DailyReportPage() {
 
         <h2 className="font-bold text-gray-800 text-lg mb-4">日報集計</h2>
 
-        {/* Month picker */}
-        <div className="mb-4">
+        {/* Month picker + Export */}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <input
             type="month"
             value={selectedMonth}
             onChange={e => setSelectedMonth(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
           />
+          <button
+            onClick={exportCSV}
+            disabled={rows.length === 0}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            CSV出力
+          </button>
+          <button
+            onClick={exportPDF}
+            disabled={rows.length === 0}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white rounded-lg hover:opacity-90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: '#14252A' }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+            PDF出力
+          </button>
         </div>
 
         {loading ? (
