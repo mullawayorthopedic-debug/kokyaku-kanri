@@ -190,18 +190,28 @@ export default function MonthlyReportPage() {
         })
       }
 
-      // 既存患者の整体/ダイエット別詳細データ
+      // 全患者（既存+新規）の整体/ダイエット別詳細データ
       const details: Record<string, ExistDetail> = {}
       for (const [month, d] of Object.entries(byMonth)) {
         const seitaiList: ExistPatient[] = []
         const dietList: ExistPatient[] = []
 
+        // 既存患者
         for (const [pid, rev] of Object.entries(d.existPidRev)) {
           const ptype = patientTypeMap[pid] || ''
           const entry = { pid, name: patientNameMap[pid] || '不明', revenue: rev }
-          if (ptype === '整体') seitaiList.push(entry)
-          else if (ptype === 'ダイエット') dietList.push(entry)
+          if (ptype === 'ダイエット') dietList.push(entry)
           else seitaiList.push(entry) // 未分類は整体側に
+        }
+
+        // 新規患者も含める（期間カルテ枚数 = 全ユニーク患者数）
+        for (const pid of d.newPids) {
+          const ptype = patientTypeMap[pid] || ''
+          // 新規患者の売上を集計
+          const rev = allSlips.filter(sl => sl.patient_id === pid && sl.visit_date.slice(0, 7) === month).reduce((sum, sl) => sum + (sl.total_price || 0), 0)
+          const entry = { pid, name: patientNameMap[pid] || '不明', revenue: rev }
+          if (ptype === 'ダイエット') dietList.push(entry)
+          else seitaiList.push(entry)
         }
 
         seitaiList.sort((a, b) => b.revenue - a.revenue)
@@ -412,7 +422,7 @@ function ExistDetailPanel({ month, detail, existRevenue }: {
   return (
     <div>
       <p className="text-xs font-semibold text-green-700 mb-3">
-        {month} 既存患者売上実績（計 {totalCards}名 / {existRevenue.toLocaleString()}円）
+        {month} 患者売上実績（計 {totalCards}名 / {(detail.seitaiTotal + detail.dietTotal).toLocaleString()}円）
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
