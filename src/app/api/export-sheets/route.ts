@@ -155,6 +155,38 @@ export async function POST(req: NextRequest) {
       target[mapped.media].clicks += ac.clicks || 0
     })
 
+    // 問い合わせデータ取得（cm_daily_inquiries）→ 媒体別C列に反映
+    const monthStart = `${ym}-01`
+    const monthEnd = `${ym}-31`
+    const { data: inquiryData } = await supabase
+      .from('cm_daily_inquiries')
+      .select('channel, category, inquiries, conversions')
+      .eq('clinic_id', clinicId)
+      .gte('date', monthStart)
+      .lte('date', monthEnd)
+
+    inquiryData?.forEach(iq => {
+      const channel = iq.channel || ''
+      const cat = iq.category || ''
+      // まずnormalizeAdChannelでチャネル名→媒体名にマッピング
+      const mapped = normalizeAdChannel(channel)
+      if (mapped) {
+        // カテゴリはcm_daily_inquiriesのcategoryを優先、なければnormalizeAdChannelのtypeを使う
+        const type = cat === 'diet' ? 'diet' : cat === 'seitai' ? 'seitai' : mapped.type
+        const target = type === 'diet' ? mediaData.diet : mediaData.seitai
+        if (!target[mapped.media]) target[mapped.media] = { count: 0, revenue: 0, cost: 0, inquiries: 0, clicks: 0 }
+        target[mapped.media].inquiries += iq.inquiries || 0
+      } else {
+        // normalizeAdChannelで判定できない場合はnormalizeReferralで試行
+        const media = normalizeReferral(channel)
+        if (!media) return
+        const type = cat === 'diet' ? 'diet' : 'seitai'
+        const target = type === 'diet' ? mediaData.diet : mediaData.seitai
+        if (!target[media]) target[media] = { count: 0, revenue: 0, cost: 0, inquiries: 0, clicks: 0 }
+        target[media].inquiries += iq.inquiries || 0
+      }
+    })
+
     // 新規カウント
     let seitaiNewCount = 0
     let dietNewCount = 0

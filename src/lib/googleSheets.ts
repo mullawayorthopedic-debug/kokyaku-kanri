@@ -291,22 +291,8 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
 
   await batchUpdate(r)
 
-  // ===== 6. 年間統計表にも書き込み =====
-  // 年間統計: row43=1月 ~ row54=12月
-  // O=施術回数, P=カルテ枚数, R=新規数, S=売上, T=新規売上, V=広告費
-  // Q(頻度), U(既存売上), W(LTV), X(CPA), Y(利益LTV)は数式→触らない
-  const yearSheetName = sheets.find(s2 => s2.title.includes(`${year}年,年間統計表`))?.title
-  if (yearSheetName) {
-    const yearRow = 42 + month // 1月=43, 2月=44, ...
-    const yr: { range: string; values: (string | number)[][] }[] = []
-    yr.push({ range: `'${yearSheetName}'!O${yearRow}`, values: [[data.visits]] })
-    yr.push({ range: `'${yearSheetName}'!P${yearRow}`, values: [[data.patients]] })
-    yr.push({ range: `'${yearSheetName}'!R${yearRow}`, values: [[data.seitaiNewCount + data.dietNewCount]] })
-    yr.push({ range: `'${yearSheetName}'!S${yearRow}`, values: [[data.totalRevenue]] })
-    yr.push({ range: `'${yearSheetName}'!T${yearRow}`, values: [[data.newRevenue]] })
-    yr.push({ range: `'${yearSheetName}'!V${yearRow}`, values: [[data.adCost]] })
-    await batchUpdate(yr)
-  }
+  // 年間統計（rows 43-54）は新マスターでは全て数式で自動計算されるため書き込み不要
+  // O43=B4, P43=B7, R43=E7, S43=B2, T43=H30, V43=G30 等
 
   return newTitle
 }
