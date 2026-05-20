@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getClinicIdServer } from '@/lib/clinic-server'
 import { fetchAllSlipsServer } from '@/lib/fetchAllServer'
-import { writeMonthlySheet, normalizeReferral } from '@/lib/googleSheets'
+import { writeMonthlySheet, normalizeReferral, normalizeAdChannel } from '@/lib/googleSheets'
 import type { MonthExportData } from '@/lib/googleSheets'
 
 function calcAge(birthDate: string): number | null {
@@ -23,13 +23,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'yearとmonthは必須です' }, { status: 400 })
     }
 
-    // クライアントから渡されたclinicIdを優先（getClinicIdServerがデフォルトを返す場合の対策）
     const serverClinicId = await getClinicIdServer()
     const clinicId = clientClinicId || serverClinicId
     const supabase = await createClient()
     const ym = `${year}-${String(month).padStart(2, '0')}`
 
-    // 全スリップ取得（初回来院月判定に必要）
+    // 全スリップ取得
     const allSlips = await fetchAllSlipsServer(supabase, clinicId, 'patient_id,visit_date,total_price,menu_name') as {
       patient_id: string; visit_date: string; total_price: number; menu_name: string
     }[]
@@ -58,15 +57,13 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    // 初回来院月・初回コース
+    // 初回来院月
     const firstVisitMonth: Record<string, string> = {}
-    const firstVisitMenu: Record<string, string> = {}
     allSlips.forEach(s => {
       if (!s.patient_id) return
       const m = s.visit_date.slice(0, 7)
       if (!firstVisitMonth[s.patient_id] || m < firstVisitMonth[s.patient_id]) {
         firstVisitMonth[s.patient_id] = m
-        firstVisitMenu[s.patient_id] = s.menu_name || ''
       }
     })
 
@@ -88,6 +85,9 @@ export async function POST(req: NextRequest) {
       }
     })
 
+    // 営業日数（来院がある日のユニーク数）
+    const workingDays = new Set(monthSlips.map(s => s.visit_date)).size
+
     // 既存患者を整体/ダイエット別に分ける
     const existSeitai: { name: string; revenue: number }[] = []
     const existDiet: { name: string; revenue: number }[] = []
@@ -104,24 +104,19 @@ export async function POST(req: NextRequest) {
     const newPatients = Array.from(newPids).map(pid => {
       const p = patientMap[pid] || { name: '不明', category: '', gender: '', birth_date: '', city: '', chief_complaint: '', referral_source: '', visit_motive: '' }
       return {
-        name: p.name,
-        city: p.city,
-        gender: p.gender,
+        name: p.name, city: p.city, gender: p.gender,
         age: calcAge(p.birth_date),
-        visitMotive: p.visit_motive,
-        chiefComplaint: p.chief_complaint,
-        referralSource: p.referral_source,
-        category: p.category,
+        visitMotive: p.visit_motive, chiefComplaint: p.chief_complaint,
+        referralSource: p.referral_source, category: p.category,
       }
     }).sort((a, b) => {
-      // 整体→ダイエットの順に並べる
       if (a.category === '整体' && b.category !== '整体') return -1
       if (a.category !== '整体' && b.category === '整体') return 1
       return 0
     })
 
-    // 新規患者の媒体別集計
-    const mediaRevenue: { seitai: Record<string, { count: number; revenue: number }>; diet: Record<string, { count: number; revenue: number }> } = {
+    // 新規患者の媒体別集計（新規数+売上）
+    const mediaData: { seitai: Record<string, { count: number; revenue: number; cost: number; inquiries: number; clicks: number }>; diet: Record<string, { count: number; revenue: number; cost: number; inquiries: number; clicks: number }> } = {
       seitai: {}, diet: {},
     }
     for (const pid of newPids) {
@@ -130,11 +125,30 @@ export async function POST(req: NextRequest) {
       const media = normalizeReferral(p.referral_source) || normalizeReferral(p.visit_motive)
       if (!media) continue
       const rev = newPidRev[pid] || 0
-      const target = p.category === 'ダイエット' ? mediaRevenue.diet : mediaRevenue.seitai
-      if (!target[media]) target[media] = { count: 0, revenue: 0 }
+      const target = p.category === 'ダイエット' ? mediaData.diet : mediaData.seitai
+      if (!target[media]) target[media] = { count: 0, revenue: 0, cost: 0, inquiries: 0, clicks: 0 }
       target[media].count++
       target[media].revenue += rev
     }
+
+    // 広告費データ取得（媒体別）
+    const { data: adCostData } = await supabase
+      .from('cm_ad_costs')
+      .select('channel, cost, impressions, clicks, inquiries')
+      .eq('clinic_id', clinicId)
+      .eq('month', ym)
+
+    let adCost = 0
+    adCostData?.forEach(ac => {
+      adCost += ac.cost || 0
+      const mapped = normalizeAdChannel(ac.channel || '')
+      if (!mapped) return
+      const target = mapped.type === 'diet' ? mediaData.diet : mediaData.seitai
+      if (!target[mapped.media]) target[mapped.media] = { count: 0, revenue: 0, cost: 0, inquiries: 0, clicks: 0 }
+      target[mapped.media].cost += ac.cost || 0
+      target[mapped.media].inquiries += ac.inquiries || 0
+      target[mapped.media].clicks += ac.clicks || 0
+    })
 
     // 新規カウント
     let seitaiNewCount = 0
@@ -146,20 +160,10 @@ export async function POST(req: NextRequest) {
     }
 
     const existPatientCount = pids.size - newPids.size
-
-    // 売上集計
     const totalRevenue = monthSlips.reduce((s, sl) => s + (sl.total_price || 0), 0)
     const newRevenue = Object.values(newPidRev).reduce((s, v) => s + v, 0)
     const existRevenue = Object.values(existPidRev).reduce((s, v) => s + v, 0)
-    const frequency = pids.size > 0 ? Math.round((monthSlips.length / pids.size) * 10) / 10 : 0
-
-    // 広告費取得
-    const { data: adCostData } = await supabase
-      .from('cm_ad_costs')
-      .select('cost')
-      .eq('clinic_id', clinicId)
-      .eq('month', ym)
-    const adCost = adCostData?.reduce((s, ac) => s + (ac.cost || 0), 0) || 0
+    const avgPrice = monthSlips.length > 0 ? Math.round(totalRevenue / monthSlips.length) : 0
 
     const exportData: MonthExportData = {
       visits: monthSlips.length,
@@ -171,11 +175,12 @@ export async function POST(req: NextRequest) {
       newRevenue,
       existRevenue,
       adCost,
-      frequency,
+      workingDays,
+      avgPrice,
       existSeitai,
       existDiet,
       newPatients,
-      mediaRevenue,
+      mediaData,
     }
 
     const sheetTitle = await writeMonthlySheet(year, month, exportData)
