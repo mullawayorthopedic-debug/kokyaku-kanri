@@ -218,6 +218,29 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
 
   // ===== 3. 媒体別（入力セルのみ: B=新規数, C=問合せ, D=アクセス, G=費用, H=売上） =====
   // E列(反応率), F列(CV率), I列(LTV), J列(CPA), K列(利益LTV), L列(ROAS)は全て数式→触らない
+
+  // シートの媒体マップに存在しないmediaDataエントリを「紹介」に統合
+  // （例: ダイエット患者の経路が'PPC'の場合、DIET_MAPに'PPC'がないので'紹介'に合算）
+  const consolidateMedia = (
+    mediaMap: Record<string, { count: number; revenue: number; cost: number; inquiries: number; clicks: number }>,
+    validKeys: Record<string, number>,
+    fallbackKey: string
+  ) => {
+    const invalidKeys = Object.keys(mediaMap).filter(k => !(k in validKeys))
+    if (invalidKeys.length === 0) return
+    if (!mediaMap[fallbackKey]) mediaMap[fallbackKey] = { count: 0, revenue: 0, cost: 0, inquiries: 0, clicks: 0 }
+    for (const k of invalidKeys) {
+      mediaMap[fallbackKey].count += mediaMap[k].count
+      mediaMap[fallbackKey].revenue += mediaMap[k].revenue
+      mediaMap[fallbackKey].cost += mediaMap[k].cost
+      mediaMap[fallbackKey].inquiries += mediaMap[k].inquiries
+      mediaMap[fallbackKey].clicks += mediaMap[k].clicks
+      delete mediaMap[k]
+    }
+  }
+  consolidateMedia(data.mediaData.seitai, SEITAI_MEDIA, '紹介')
+  consolidateMedia(data.mediaData.diet, DIET_MEDIA, '紹介')
+
   for (const [media, row] of Object.entries(SEITAI_MEDIA)) {
     const d = data.mediaData.seitai[media]
     if (d) {
