@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
 
     const sheetTitle = await writeMonthlySheet(year, month, exportData)
 
-    const url = `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SPREADSHEET_ID}`
+    const url = `https://docs.google.com/spreadsheets/d/${(process.env.GOOGLE_SPREADSHEET_ID || '').replace(/[\s\\n]+$/g, '').trim()}`
     return NextResponse.json({
       success: true, url, sheet: sheetTitle,
       summary: {

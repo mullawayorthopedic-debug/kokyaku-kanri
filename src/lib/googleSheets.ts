@@ -1,6 +1,6 @@
 import { JWT } from 'google-auth-library'
 
-const SPREADSHEET_ID = process.env.GOOGLE_SPREADSHEET_ID!
+const SPREADSHEET_ID = (process.env.GOOGLE_SPREADSHEET_ID || '').replace(/[\s\\n]+$/g, '').trim()
 
 function getServiceAccount(): { client_email: string; private_key: string } {
   const b64 = process.env.GOOGLE_SERVICE_ACCOUNT_JSON
@@ -102,11 +102,12 @@ export function normalizeReferral(source: string): string {
 export async function writeMonthlySheet(year: string, month: number, data: MonthExportData): Promise<string> {
   const sheets = await getSheets()
 
-  // テンプレート＝「のコピー」シート（正しい様式）
-  const template = sheets.find(s => s.title.includes('のコピー'))
-  if (!template) throw new Error('テンプレートシート（のコピー）が見つかりません')
+  // テンプレートシートを検索（「月間統計表サンプル」または「のコピー」）
+  const template = sheets.find(s => s.title.includes('月間統計表サンプル'))
+    || sheets.find(s => s.title.includes('のコピー'))
+  if (!template) throw new Error(`テンプレートシートが見つかりません。シート一覧: ${sheets.map(s => s.title).join(', ')}`)
 
-  const newTitle = `${year}年${month}月実績（自動）`
+  const newTitle = `${year}月${month}月間統計表`
 
   // 同名シートがあれば削除
   const existing = sheets.find(s => s.title === newTitle)
