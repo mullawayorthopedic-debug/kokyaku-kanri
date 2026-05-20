@@ -116,14 +116,19 @@ export async function POST(req: NextRequest) {
     })
 
     // 新規患者の媒体別集計（新規数+売上）
-    const mediaData: { seitai: Record<string, { count: number; revenue: number; cost: number; inquiries: number; clicks: number }>; diet: Record<string, { count: number; revenue: number; cost: number; inquiries: number; clicks: number }> } = {
+    // 媒体にマッピングできない患者は整体→「紹介」、ダイエット→「紹介」に振り分け
+    // （シートの数式 H28=SUM(H18:H23), H29=SUM(H25:H27) で新規売上が合算されるため、
+    //  全新規売上が必ずいずれかの媒体行に入る必要がある）
+    type MediaEntry = { count: number; revenue: number; cost: number; inquiries: number; clicks: number }
+    const mediaData: { seitai: Record<string, MediaEntry>; diet: Record<string, MediaEntry> } = {
       seitai: {}, diet: {},
     }
     for (const pid of newPids) {
       const p = patientMap[pid]
       if (!p) continue
-      const media = normalizeReferral(p.referral_source) || normalizeReferral(p.visit_motive)
-      if (!media) continue
+      let media = normalizeReferral(p.referral_source) || normalizeReferral(p.visit_motive)
+      // 媒体不明の場合は「紹介」に振り分け（売上の漏れを防ぐ）
+      if (!media) media = '紹介'
       const rev = newPidRev[pid] || 0
       const target = p.category === 'ダイエット' ? mediaData.diet : mediaData.seitai
       if (!target[media]) target[media] = { count: 0, revenue: 0, cost: 0, inquiries: 0, clicks: 0 }
