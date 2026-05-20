@@ -179,20 +179,18 @@ export async function POST(req: NextRequest) {
     const url = `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SPREADSHEET_ID}`
     return NextResponse.json({
       success: true, url, sheet: sheetTitle,
-      debug: {
-        clinicId,
+      summary: {
         month: ym,
-        totalSlips: allSlips.length,
         monthSlips: monthSlips.length,
         newPatientCount: newPids.size,
         existPatientCount,
-        newNames: newPatients.map(p => p.name),
       }
     })
   } catch (error) {
     console.error('Export to Sheets error:', error)
+    const message = error instanceof Error ? error.message : 'サーバーエラーが発生しました'
     return NextResponse.json(
-      { error: `書き込み失敗: ${error instanceof Error ? error.message : String(error)}` },
+      { error: message },
       { status: 500 }
     )
   }
