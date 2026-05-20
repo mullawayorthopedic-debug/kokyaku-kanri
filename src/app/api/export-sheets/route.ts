@@ -150,6 +150,8 @@ export async function POST(req: NextRequest) {
     // 売上集計
     const totalRevenue = monthSlips.reduce((s, sl) => s + (sl.total_price || 0), 0)
     const newRevenue = Object.values(newPidRev).reduce((s, v) => s + v, 0)
+    const existRevenue = Object.values(existPidRev).reduce((s, v) => s + v, 0)
+    const frequency = pids.size > 0 ? Math.round((monthSlips.length / pids.size) * 10) / 10 : 0
 
     // 広告費取得
     const { data: adCostData } = await supabase
@@ -167,7 +169,9 @@ export async function POST(req: NextRequest) {
       dietNewCount,
       totalRevenue,
       newRevenue,
+      existRevenue,
       adCost,
+      frequency,
       existSeitai,
       existDiet,
       newPatients,

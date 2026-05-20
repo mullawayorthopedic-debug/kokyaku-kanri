@@ -66,7 +66,9 @@ export interface MonthExportData {
   dietNewCount: number     // ダイエット新規数
   totalRevenue: number     // 合計売上
   newRevenue: number       // 新規売上
+  existRevenue: number     // 既存売上
   adCost: number           // 広告費
+  frequency: number        // 来院頻度
   existSeitai: ExistPatient[]
   existDiet: ExistPatient[]
   newPatients: NewPatient[]
@@ -76,10 +78,12 @@ export interface MonthExportData {
   }
 }
 
-// 来院経路→媒体行マッピング（整体: row 18-23, ダイエット: row 25-27）
+// ===== 媒体行マッピング（シートのrow番号） =====
+// 整体: row 18-23
 const SEITAI_MEDIA: Record<string, number> = {
   'PPC': 18, 'ポスティング': 19, '折り込み': 20, 'インスタ': 21, 'MEO': 22, '紹介': 23,
 }
+// ダイエット: row 25-27
 const DIET_MEDIA: Record<string, number> = {
   'HPB': 25, 'インスタ': 26, '紹介': 27,
 }
@@ -129,28 +133,29 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
 
   const s = newTitle
 
-  // テンプレートに残っている旧データをクリア（関数セルは壊さない、入力セルのみ）
+  // テンプレートに残っている旧データをクリア（数式セルは壊さない）
   await sheetsApi('/values:batchClear', {
     method: 'POST',
     body: JSON.stringify({
       ranges: [
-        `'${s}'!B3`,          // 営業日数
-        `'${s}'!B4`,          // 施術回数
-        `'${s}'!B7`,          // カルテ枚数
-        `'${s}'!E9`,          // 既存カルテ合計
-        `'${s}'!F4`,          // 整体新規数
-        `'${s}'!G4:H4`,       // リピート数
-        `'${s}'!F8`,          // ダイエット新規数
-        `'${s}'!G8:H8`,       // リピート数
-        `'${s}'!I14:K14`,     // 回数券購入数
-        `'${s}'!B18:B23`,     // 整体媒体 新規数
-        `'${s}'!C18:D23`,     // 整体媒体 問い合わせ・アクセス
-        `'${s}'!G18:H23`,     // 整体媒体 費用・売上
-        `'${s}'!B25:B27`,     // ダイエット媒体 新規数
-        `'${s}'!C25:D27`,     // ダイエット媒体 問い合わせ・アクセス
-        `'${s}'!G25:H27`,     // ダイエット媒体 費用・売上
-        `'${s}'!A33:D67`,     // 既存患者リスト
-        `'${s}'!N4:U25`,      // 新規患者管理（全行クリア）
+        // 左上サマリー（入力セルのみ）
+        `'${s}'!B4`,            // 施術回数
+        `'${s}'!B7`,            // カルテ枚数
+        `'${s}'!F4`,            // 整体新規数
+        `'${s}'!G4:H4`,         // 整体 2回目/6回目リピ数
+        `'${s}'!F8`,            // ダイエット新規数
+        `'${s}'!G8:H8`,         // ダイエット 2回目/6回目リピ数
+        `'${s}'!E9`,            // 既存カルテ合計
+        `'${s}'!I14:K14`,       // 回数券購入数
+        // 媒体別（入力値のみ：B列=新規数, C列=問い合わせ, D列=アクセス）
+        `'${s}'!B18:D23`,       // 整体媒体
+        `'${s}'!H18:H23`,       // 整体媒体 売上
+        `'${s}'!B25:D27`,       // ダイエット媒体
+        `'${s}'!H25:H27`,       // ダイエット媒体 売上
+        // 既存患者リスト
+        `'${s}'!A33:D67`,
+        // 新規患者管理
+        `'${s}'!N4:X25`,
       ]
     })
   })
@@ -160,19 +165,27 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
   // ===== 1. タイトル =====
   r.push({ range: `'${s}'!A1`, values: [[`${year}年${month}月間実績`]] })
 
-  // ===== 2. 左上サマリー（指定セルのみ）=====
+  // ===== 2. 左上サマリー =====
   // B4: 施術回数
   r.push({ range: `'${s}'!B4`, values: [[data.visits]] })
   // B7: カルテ枚数
   r.push({ range: `'${s}'!B7`, values: [[data.patients]] })
-  // F4: 整体新規数合計
+  // B8: 来院頻度
+  if (data.frequency > 0) {
+    r.push({ range: `'${s}'!B8`, values: [[Math.round(data.frequency * 10) / 10]] })
+  }
+  // E7: 新規合計（整体+ダイエット）
+  r.push({ range: `'${s}'!E7`, values: [[data.seitaiNewCount + data.dietNewCount]] })
+  // F4: 整体新規数
   r.push({ range: `'${s}'!F4`, values: [[data.seitaiNewCount]] })
-  // F8: ダイエット新規合計
+  // F8: ダイエット新規数
   r.push({ range: `'${s}'!F8`, values: [[data.dietNewCount]] })
   // E9: 既存カルテ合計
   r.push({ range: `'${s}'!E9`, values: [[data.existPatientCount]] })
+  // B16: 全広告費
+  r.push({ range: `'${s}'!B16`, values: [[data.adCost]] })
 
-  // ===== 3. 媒体別（新規数 B列 + 売上 H列のみ。費用G列は手動）=====
+  // ===== 3. 媒体別（B列=新規数, H列=媒体別売上）=====
   for (const [media, row] of Object.entries(SEITAI_MEDIA)) {
     const d = data.mediaRevenue.seitai[media]
     if (d && d.count > 0) {
@@ -188,7 +201,7 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
     }
   }
 
-  // ===== 4. 既存患者リスト（A33-D67）0円は除外 =====
+  // ===== 4. 既存患者リスト（A33:B=整体, C33:D=ダイエット）=====
   const seitaiFiltered = data.existSeitai.filter(p => p.revenue > 0)
   const dietFiltered = data.existDiet.filter(p => p.revenue > 0)
   if (seitaiFiltered.length > 0) {
@@ -198,7 +211,8 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
     r.push({ range: `'${s}'!C33:D${32 + dietFiltered.length}`, values: dietFiltered.map(p => [p.name, p.revenue]) })
   }
 
-  // ===== 5. 新規患者管理（N4-U列のみ。V:CVの有無、W:初回施術後 は手動）=====
+  // ===== 5. 新規患者管理（N4:X列）=====
+  // N=番号, O=氏名, P=地域, Q=性別, R=年齢, S=検索キーワード, T=症状, U=来院経路
   if (data.newPatients.length > 0) {
     r.push({
       range: `'${s}'!N4:U${3 + data.newPatients.length}`,
@@ -218,17 +232,19 @@ export async function writeMonthlySheet(year: string, month: number, data: Month
   await batchUpdate(r)
 
   // ===== 6. 年間統計表にも書き込み =====
+  // 年間統計表の月次データ: row 43=1月, 44=2月, ... 54=12月
+  // O=施術回数, P=カルテ枚数, R=新規数, S=売上, T=新規売上, U=既存売上, V=広告費
   const yearSheetName = sheets.find(s2 => s2.title.includes(`${year}年,年間統計表`))?.title
   if (yearSheetName) {
-    const yearRow = month + 1 // 1月=row2, 2月=row3, 3月=row4...
+    const yearRow = 42 + month // 1月=row43, 2月=row44, ...12月=row54
     const yr: { range: string; values: (string | number)[][] }[] = []
-    // D: 施術回数, E: カルテ枚数, H: 新規数, I: 売上, J: 新規売上, L: 広告費
-    yr.push({ range: `'${yearSheetName}'!D${yearRow}`, values: [[data.visits]] })
-    yr.push({ range: `'${yearSheetName}'!E${yearRow}`, values: [[data.patients]] })
-    yr.push({ range: `'${yearSheetName}'!H${yearRow}`, values: [[data.seitaiNewCount + data.dietNewCount]] })
-    yr.push({ range: `'${yearSheetName}'!I${yearRow}`, values: [[data.totalRevenue]] })
-    yr.push({ range: `'${yearSheetName}'!J${yearRow}`, values: [[data.newRevenue]] })
-    yr.push({ range: `'${yearSheetName}'!L${yearRow}`, values: [[data.adCost]] })
+    yr.push({ range: `'${yearSheetName}'!O${yearRow}`, values: [[data.visits]] })
+    yr.push({ range: `'${yearSheetName}'!P${yearRow}`, values: [[data.patients]] })
+    yr.push({ range: `'${yearSheetName}'!R${yearRow}`, values: [[data.seitaiNewCount + data.dietNewCount]] })
+    yr.push({ range: `'${yearSheetName}'!S${yearRow}`, values: [[data.totalRevenue]] })
+    yr.push({ range: `'${yearSheetName}'!T${yearRow}`, values: [[data.newRevenue]] })
+    yr.push({ range: `'${yearSheetName}'!U${yearRow}`, values: [[data.existRevenue]] })
+    yr.push({ range: `'${yearSheetName}'!V${yearRow}`, values: [[data.adCost]] })
     await batchUpdate(yr)
   }
 
