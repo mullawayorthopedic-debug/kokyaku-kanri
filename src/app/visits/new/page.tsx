@@ -71,7 +71,7 @@ function VisitForm() {
   useEffect(() => {
     const load = async () => {
       const [patientsRes, baseMenusRes, optionMenusRes, slipsRes] = await Promise.all([
-        supabase.from('cm_patients').select('*').eq('clinic_id', clinicId).eq('status', 'active').order('name'),
+        supabase.from('cm_patients').select('*').eq('clinic_id', clinicId).in('status', ['active', 'inactive', 'completed']).order('name'),
         supabase.from('cm_base_menus').select('*').eq('clinic_id', clinicId).eq('is_active', true).order('sort_order'),
         supabase.from('cm_option_menus').select('*').eq('clinic_id', clinicId).eq('is_active', true).order('sort_order'),
         supabase.from('cm_slips').select('menu_name').eq('clinic_id', clinicId),
@@ -359,6 +359,8 @@ function VisitForm() {
                   >
                     <span className="font-medium">{p.name}</span>
                     <span className="text-xs text-gray-400 ml-2">{p.furigana}</span>
+                    {p.status === 'inactive' && <span className="text-[10px] text-red-500 ml-2 font-bold">離脱</span>}
+                    {p.status === 'completed' && <span className="text-[10px] text-blue-500 ml-2 font-bold">卒業</span>}
                   </button>
                 ))}
               </div>

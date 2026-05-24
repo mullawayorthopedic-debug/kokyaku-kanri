@@ -86,6 +86,7 @@ export default function HomePage() {
   const [dateSlips, setDateSlips] = useState<TodaySlip[]>([])
   const [todayPatients, setTodayPatients] = useState<{ id: string; name: string }[]>([])
   const [dropoutPatients, setDropoutPatients] = useState<{ id: string; name: string; status_date: string | null; status_reason: string }[]>([])
+  const [graduationPatients, setGraduationPatients] = useState<{ id: string; name: string; status_date: string | null; status_reason: string }[]>([])
   const [stats, setStats] = useState({ totalPatients: 0, monthVisits: 0, todayVisits: 0, todayRevenue: 0, monthRevenue: 0 })
   const [lastYearStats, setLastYearStats] = useState<{ monthVisits: number; todayVisits: number; todayRevenue: number; monthRevenue: number } | null>(null)
 
@@ -177,15 +178,24 @@ export default function HomePage() {
     }
     loadLastYearStats()
 
-    // 離脱患者を取得
+    // 離脱・卒業患者を取得
     const loadDropouts = async () => {
-      const { data } = await supabase.from('cm_patients')
-        .select('id, name, status_date, status_reason')
-        .eq('clinic_id', clinicId)
-        .eq('status', 'inactive')
-        .order('status_date', { ascending: false })
-        .limit(20)
-      setDropoutPatients(data || [])
+      const [dropRes, gradRes] = await Promise.all([
+        supabase.from('cm_patients')
+          .select('id, name, status_date, status_reason')
+          .eq('clinic_id', clinicId)
+          .eq('status', 'inactive')
+          .order('status_date', { ascending: false })
+          .limit(20),
+        supabase.from('cm_patients')
+          .select('id, name, status_date, status_reason')
+          .eq('clinic_id', clinicId)
+          .eq('status', 'completed')
+          .order('status_date', { ascending: false })
+          .limit(20),
+      ])
+      setDropoutPatients(dropRes.data || [])
+      setGraduationPatients(gradRes.data || [])
     }
     loadDropouts()
 
@@ -436,14 +446,23 @@ export default function HomePage() {
       setStatusSaved(true)
       setDropoutEntries([emptyEntry()])
       setGraduationEntries([emptyEntry()])
-      // 離脱患者リストをリフレッシュ
-      const { data } = await supabase.from('cm_patients')
-        .select('id, name, status_date, status_reason')
-        .eq('clinic_id', clinicId)
-        .eq('status', 'inactive')
-        .order('status_date', { ascending: false })
-        .limit(20)
-      setDropoutPatients(data || [])
+      // 離脱・卒業患者リストをリフレッシュ
+      const [dropRes, gradRes] = await Promise.all([
+        supabase.from('cm_patients')
+          .select('id, name, status_date, status_reason')
+          .eq('clinic_id', clinicId)
+          .eq('status', 'inactive')
+          .order('status_date', { ascending: false })
+          .limit(20),
+        supabase.from('cm_patients')
+          .select('id, name, status_date, status_reason')
+          .eq('clinic_id', clinicId)
+          .eq('status', 'completed')
+          .order('status_date', { ascending: false })
+          .limit(20),
+      ])
+      setDropoutPatients(dropRes.data || [])
+      setGraduationPatients(gradRes.data || [])
       setTimeout(() => setStatusSaved(false), 3000)
     } catch (e) {
       alert('保存失敗: ' + (e instanceof Error ? e.message : String(e)))
@@ -844,26 +863,6 @@ export default function HomePage() {
                 </div>
               )}
 
-              {/* 離脱患者セクション */}
-              {dropoutPatients.length > 0 && (
-                <div className="mt-5 pt-4 border-t border-red-100">
-                  <h3 className="font-bold text-sm text-red-700 mb-3">🚨 離脱患者（{dropoutPatients.length}名）</h3>
-                  <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                    {dropoutPatients.map(p => (
-                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-red-100 rounded-lg p-2.5 bg-red-50/30 hover:bg-red-50">
-                        <div className="flex justify-between items-center gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="w-2 h-2 rounded-full shrink-0 bg-red-500" />
-                            <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
-                          </div>
-                          {p.status_date && <span className="text-[10px] text-red-500 shrink-0">{p.status_date}</span>}
-                        </div>
-                        {p.status_reason && <p className="text-[10px] text-gray-500 mt-1 ml-4 truncate">{p.status_reason}</p>}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* ===== 当日問い合わせ・予約クイック入力 ===== */}
@@ -1092,6 +1091,44 @@ export default function HomePage() {
                 {savingStatus ? '保存中...' : statusSaved ? '✓ 登録しました' : '登録する'}
               </button>
               <p className="text-[10px] text-gray-400 text-center mt-1.5">※ 顧客名簿のステータスに自動反映されます</p>
+
+              {/* 離脱患者一覧 */}
+              {dropoutPatients.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-red-100">
+                  <h3 className="font-bold text-xs text-red-700 mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500" /> 離脱患者（{dropoutPatients.length}名）
+                  </h3>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {dropoutPatients.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-red-100 rounded-lg p-2 bg-red-50/30 hover:bg-red-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                          {p.status_date && <span className="text-[10px] text-red-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 卒業患者一覧 */}
+              {graduationPatients.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-blue-100">
+                  <h3 className="font-bold text-xs text-blue-700 mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" /> 卒業患者（{graduationPatients.length}名）
+                  </h3>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {graduationPatients.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-blue-100 rounded-lg p-2 bg-blue-50/30 hover:bg-blue-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                          {p.status_date && <span className="text-[10px] text-blue-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

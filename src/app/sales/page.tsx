@@ -2,19 +2,7 @@
 
 import Link from 'next/link'
 import AppShell from '@/components/AppShell'
-
-const saleTabs = [
-  { href: '/sales', label: '概要' },
-  { href: '/sales/daily-report', label: '日報集計' },
-  { href: '/sales/monthly-report', label: '日計月計' },
-  { href: '/sales/revenue', label: '売上集計' },
-  { href: '/sales/slips', label: '伝票一覧' },
-  { href: '/sales/ltv', label: 'LTV' },
-  { href: '/sales/repeat', label: 'リピート' },
-  { href: '/sales/hourly', label: '時間単価' },
-  { href: '/sales/utilization', label: '稼働率' },
-  { href: '/sales/cross', label: 'クロス集計' },
-]
+import { saleTabs } from '@/lib/saleTabs'
 
 const menuCards = [
   { href: '/sales/daily-report', icon: '📅', title: '日報集計', desc: '日別売上・現金・クレジット・新規/リピート集計' },
@@ -31,6 +19,7 @@ const menuCards = [
   { href: '/sales/area-ltv', icon: '🗺', title: 'エリア分析', desc: 'エリア別のLTV分析' },
   { href: '/sales/map', icon: '📍', title: '地域分布', desc: '患者の地域分布マップ' },
   { href: '/sales/ad-costs', icon: '💳', title: '広告費入力', desc: '媒体別の広告費用管理' },
+  { href: '/sales/churn', icon: '📋', title: '離脱・卒業', desc: '離脱・卒業患者の一覧と推移' },
   { href: '/visits/new', icon: '📝', title: '施術記録', desc: '施術内容・料金・次回予約の記録' },
   { href: '/visits/import', icon: '📥', title: '来院履歴CSV取込', desc: '他システムからの来院データ移行' },
 ]
