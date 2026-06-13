@@ -16,7 +16,6 @@ function adminClient() {
   )
 }
 
-// 1000件制限を回避して全件取得
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAll(supabase: any, table: string, select: string, filters: Record<string, string>) {
   const PAGE_SIZE = 1000
@@ -58,12 +57,12 @@ export async function GET(req: NextRequest) {
     const endDate = `${ym}-31`
 
     // 全伝票を取得（初回来院月の判定に全期間必要）
-    const allSlips = await fetchAll(supabase, 'cm_slips', 'patient_id, visit_date, total_price, menu_name', {
+    const allSlips = await fetchAll(supabase, 'cm_slips', 'patient_id, visit_date, total_price', {
       'clinic_id': clinicId,
     })
 
-    // 患者データ（customer_category含む）
-    const allPatients = await fetchAll(supabase, 'cm_patients', 'id, customer_category, referral_source, first_visit_date, visit_count, status', {
+    // 患者データ
+    const allPatients = await fetchAll(supabase, 'cm_patients', 'id, customer_category, referral_source, visit_count, status', {
       'clinic_id': clinicId,
     })
 
@@ -74,7 +73,7 @@ export async function GET(req: NextRequest) {
       patientRefMap[p.id] = p.referral_source || ''
     })
 
-    // 各患者の初回来院月を伝票から算出
+    // 各患者の初回来院月を伝票から算出（月次レポートと同じロジック）
     const firstVisitMonth: Record<string, string> = {}
     allSlips.forEach((s: { patient_id: string; visit_date: string }) => {
       if (!s.patient_id) return
@@ -89,40 +88,39 @@ export async function GET(req: NextRequest) {
       s.visit_date >= startDate && s.visit_date <= endDate
     )
 
-    // 集計
-    let totalRevenue = 0
-    let seitaiRevNew = 0, seitaiRevExist = 0
-    let dietRevNew = 0, dietRevExist = 0
+    // 集計（月次レポートと同じロジック）
+    let totalRevenue = 0, newRevenue = 0
+    let existRevSeitai = 0, existRevDiet = 0
+    const uniquePids = new Set<string>()
     const newPids = new Set<string>()
-    const existPids = new Set<string>()
     const newSeitaiPids = new Set<string>()
     const newDietPids = new Set<string>()
-    const uniquePids = new Set<string>()
 
-    monthSlips.forEach((s: { patient_id: string; total_price: number; visit_date: string }) => {
+    monthSlips.forEach((s: { patient_id: string; total_price: number }) => {
       const amount = s.total_price || 0
       totalRevenue += amount
       if (s.patient_id) uniquePids.add(s.patient_id)
 
-      const category = patientCategoryMap[s.patient_id] || ''
-      const isNew = s.patient_id && firstVisitMonth[s.patient_id] === ym
+      const ptype = patientCategoryMap[s.patient_id] || ''
 
-      const isDiet = category === 'ダイエット'
-
-      if (isNew) {
+      if (s.patient_id && firstVisitMonth[s.patient_id] === ym) {
+        // 新規
         newPids.add(s.patient_id)
-        if (isDiet) { dietRevNew += amount; newDietPids.add(s.patient_id) }
-        else { seitaiRevNew += amount; newSeitaiPids.add(s.patient_id) }
+        newRevenue += amount
+        if (ptype === '整体') newSeitaiPids.add(s.patient_id)
+        if (ptype === 'ダイエット') newDietPids.add(s.patient_id)
       } else {
-        if (s.patient_id) existPids.add(s.patient_id)
-        if (isDiet) { dietRevExist += amount }
-        else { seitaiRevExist += amount }
+        // 既存
+        if (ptype === 'ダイエット') { existRevDiet += amount }
+        else { existRevSeitai += amount }
       }
     })
 
-    const seitaiRevenue = seitaiRevNew + seitaiRevExist
-    const dietRevenue = dietRevNew + dietRevExist
+    const existRevenue = totalRevenue - newRevenue
     const totalVisits = monthSlips.length
+    const frequency = uniquePids.size > 0 ? parseFloat((totalVisits / uniquePids.size).toFixed(1)) : 0
+
+    // 平均客単価（通常施術: 0円超・50,000円未満）
     const normalSlips = monthSlips.filter((s: { total_price: number }) => (s.total_price || 0) > 0 && (s.total_price || 0) < 50000)
     const normalRevenue = normalSlips.reduce((sum: number, s: { total_price: number }) => sum + (s.total_price || 0), 0)
     const avgPrice = normalSlips.length > 0 ? Math.round(normalRevenue / normalSlips.length) : 0
@@ -135,41 +133,57 @@ export async function GET(req: NextRequest) {
     }).length
     const referralNew = newPatientIds.filter(pid => (patientRefMap[pid] || '').includes('紹介')).length
 
+    // 新規LTV
+    const newLtv = newPids.size > 0 ? Math.round(newRevenue / newPids.size) : 0
+
     // リピート率
     const activePatients = allPatients.filter((p: { status: string }) => p.status === 'active')
     const repeatCount = activePatients.filter((p: { visit_count: number }) => (p.visit_count || 0) >= 2).length
     const repeatRate = activePatients.length > 0 ? Math.round((repeatCount / activePatients.length) * 100) : 0
 
+    // 広告費
+    const { data: adCosts } = await supabase
+      .from('cm_ad_costs')
+      .select('cost')
+      .eq('clinic_id', clinicId)
+      .gte('month', ym)
+      .lte('month', ym)
+
+    const adSpend = (adCosts || []).reduce((sum: number, r: { cost: number }) => sum + (r.cost || 0), 0)
+    const cpa = newPids.size > 0 ? Math.round(adSpend / newPids.size) : 0
+
     // 問い合わせデータ
     const { data: inquiryData } = await supabase
       .from('cm_daily_inquiries')
-      .select('date, inquiries, conversions')
+      .select('inquiries, conversions')
       .eq('clinic_id', clinicId)
       .gte('date', startDate)
       .lte('date', endDate)
 
-    const totalInquiries = (inquiryData || []).reduce((sum, r) => sum + (r.inquiries || 0), 0)
+    const totalInquiries = (inquiryData || []).reduce((sum: number, r: { inquiries: number }) => sum + (r.inquiries || 0), 0)
 
     const result = {
       total_revenue: totalRevenue,
-      seitai_revenue: seitaiRevenue,
-      seitai_revenue_new: seitaiRevNew,
-      seitai_revenue_exist: seitaiRevExist,
-      diet_revenue: dietRevenue,
-      diet_revenue_new: dietRevNew,
-      diet_revenue_exist: dietRevExist,
+      new_revenue: newRevenue,
+      exist_revenue: existRevenue,
+      exist_revenue_seitai: existRevSeitai,
+      exist_revenue_diet: existRevDiet,
       avg_price: avgPrice,
       total_patients: uniquePids.size,
       total_visits: totalVisits,
+      frequency: frequency,
       new_patients: newPids.size,
       new_seitai: newSeitaiPids.size,
       new_diet: newDietPids.size,
-      existing_patients: existPids.size,
+      existing_patients: uniquePids.size - newPids.size,
       new_from_ad: adNew,
       new_from_referral: referralNew,
       repeat_rate: repeatRate,
       inquiry_count: totalInquiries,
-      diet_new: newDietPids.size,
+      new_ltv: newLtv,
+      ad_spend: adSpend,
+      cpa: cpa,
+      profit_ltv: newLtv - cpa,
     }
 
     return NextResponse.json(result, { headers: CORS_HEADERS })
