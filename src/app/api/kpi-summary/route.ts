@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
 
     const supabase = adminClient()
 
+    // clinic_idを動的に取得（デフォルト値が間違っている場合に対応）
+    const { data: clinics } = await supabase.from('clinics').select('id').limit(1)
+    const resolvedClinicId = clinics?.[0]?.id || clinicId
+
     const ym = `${year}-${String(Number(month)).padStart(2, '0')}`
     const startDate = `${ym}-01`
     const endDate = `${ym}-31`
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
     const { data: slips } = await supabase
       .from('cm_slips')
       .select('patient_id, patient_name, total_price, visit_date, menu_name')
-      .eq('clinic_id', clinicId)
+      .eq('clinic_id', resolvedClinicId)
       .gte('visit_date', startDate)
       .lte('visit_date', endDate)
 
@@ -55,7 +59,7 @@ export async function GET(req: NextRequest) {
     const { data: newPatients } = await supabase
       .from('cm_patients')
       .select('id, referral_source, first_visit_date')
-      .eq('clinic_id', clinicId)
+      .eq('clinic_id', resolvedClinicId)
       .gte('first_visit_date', startDate)
       .lte('first_visit_date', endDate)
 
@@ -76,7 +80,7 @@ export async function GET(req: NextRequest) {
     const { data: allActive } = await supabase
       .from('cm_patients')
       .select('id, visit_count')
-      .eq('clinic_id', clinicId)
+      .eq('clinic_id', resolvedClinicId)
       .eq('status', 'active')
 
     const activeCount = (allActive || []).length
@@ -102,7 +106,7 @@ export async function GET(req: NextRequest) {
       diet_new: dietNewPatients,
     }
 
-    return NextResponse.json(result, { headers: CORS_HEADERS })
+    return NextResponse.json({ ...result, _debug: { clinic_id: resolvedClinicId, slips_count: (slips || []).length, period: `${startDate} ~ ${endDate}` } }, { headers: CORS_HEADERS })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS_HEADERS })
   }
