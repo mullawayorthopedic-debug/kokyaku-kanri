@@ -61,10 +61,22 @@ export async function GET(req: NextRequest) {
       'clinic_id': clinicId,
     })
 
-    // 患者データ
-    const allPatients = await fetchAll(supabase, 'cm_patients', 'id, customer_category, referral_source, visit_count, status', {
-      'clinic_id': clinicId,
-    })
+    // 患者データ（fetchAllを使わず直接取得）
+    const PAGE = 1000
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let allPatients: any[] = []
+    let pOffset = 0
+    let pMore = true
+    while (pMore) {
+      const { data: pd } = await supabase.from('cm_patients')
+        .select('id, customer_category, referral_source, visit_count, status')
+        .eq('clinic_id', clinicId)
+        .range(pOffset, pOffset + PAGE - 1)
+      if (!pd || pd.length === 0) break
+      allPatients = allPatients.concat(pd)
+      pMore = pd.length === PAGE
+      pOffset += PAGE
+    }
 
     const patientCategoryMap: Record<string, string> = {}
     const patientRefMap: Record<string, string> = {}
