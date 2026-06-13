@@ -64,11 +64,11 @@ export async function GET(req: NextRequest) {
     // 患者データ（直接取得、エラーログ付き）
     const { data: allPatientsData, error: patientError } = await supabase
       .from('cm_patients')
-      .select('id, customer_category, referral_source, visit_count, status')
+      .select('id, customer_category, referral_source, status')
       .eq('clinic_id', clinicId)
 
     if (patientError) {
-      return NextResponse.json({ error: 'Patient query failed', detail: patientError.message, clinic_id: clinicId }, { status: 500, headers: CORS_HEADERS })
+      return NextResponse.json({ error: 'Patient query failed', detail: patientError.message }, { status: 500, headers: CORS_HEADERS })
     }
     const allPatients = allPatientsData || []
 
@@ -142,9 +142,13 @@ export async function GET(req: NextRequest) {
     // 新規LTV
     const newLtv = newPids.size > 0 ? Math.round(newRevenue / newPids.size) : 0
 
-    // リピート率
+    // リピート率（伝票から来院回数を算出）
+    const visitCountByPatient: Record<string, number> = {}
+    allSlips.forEach((s: { patient_id: string }) => {
+      if (s.patient_id) visitCountByPatient[s.patient_id] = (visitCountByPatient[s.patient_id] || 0) + 1
+    })
     const activePatients = allPatients.filter((p: { status: string }) => p.status === 'active')
-    const repeatCount = activePatients.filter((p: { visit_count: number }) => (p.visit_count || 0) >= 2).length
+    const repeatCount = activePatients.filter((p: { id: string }) => (visitCountByPatient[p.id] || 0) >= 2).length
     const repeatRate = activePatients.length > 0 ? Math.round((repeatCount / activePatients.length) * 100) : 0
 
     // 広告費
@@ -192,14 +196,7 @@ export async function GET(req: NextRequest) {
       profit_ltv: newLtv - cpa,
     }
 
-    // デバッグ: customer_categoryの分布
-    const catCounts: Record<string, number> = {}
-    allPatients.forEach((p: { customer_category: string }) => {
-      const c = p.customer_category || '(未設定)'
-      catCounts[c] = (catCounts[c] || 0) + 1
-    })
-
-    return NextResponse.json({ ...result, _debug: { patient_count: allPatients.length, category_distribution: catCounts } }, { headers: CORS_HEADERS })
+    return NextResponse.json(result, { headers: CORS_HEADERS })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS_HEADERS })
   }
