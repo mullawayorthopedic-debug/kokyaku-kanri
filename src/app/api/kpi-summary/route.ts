@@ -107,14 +107,15 @@ export async function GET(req: NextRequest) {
       const category = patientCategoryMap[s.patient_id] || ''
       const isNew = s.patient_id && firstVisitMonth[s.patient_id] === ym
 
+      const isDiet = category === 'ダイエット'
+
       if (isNew) {
         newPids.add(s.patient_id)
-        if (category === '整体') { seitaiRevNew += amount; newSeitaiPids.add(s.patient_id) }
-        else if (category === 'ダイエット') { dietRevNew += amount; newDietPids.add(s.patient_id) }
-        else { seitaiRevNew += amount } // カテゴリ未設定は整体扱い
+        if (isDiet) { dietRevNew += amount; newDietPids.add(s.patient_id) }
+        else { seitaiRevNew += amount; newSeitaiPids.add(s.patient_id) }
       } else {
         if (s.patient_id) existPids.add(s.patient_id)
-        if (category === 'ダイエット') { dietRevExist += amount }
+        if (isDiet) { dietRevExist += amount }
         else { seitaiRevExist += amount }
       }
     })
