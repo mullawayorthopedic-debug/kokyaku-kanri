@@ -106,7 +106,19 @@ export async function GET(req: NextRequest) {
       diet_new: dietNewPatients,
     }
 
-    return NextResponse.json({ ...result, _debug: { clinic_id: resolvedClinicId, slips_count: (slips || []).length, period: `${startDate} ~ ${endDate}` } }, { headers: CORS_HEADERS })
+    // デバッグ: 全slipsの件数とclinic_idの一覧を取得
+    const { data: allSlipsCheck } = await supabase.from('cm_slips').select('clinic_id, visit_date').limit(5)
+    const { data: allClinics } = await supabase.from('clinics').select('id, name')
+    const { data: patientsCheck } = await supabase.from('cm_patients').select('clinic_id').limit(3)
+
+    return NextResponse.json({ ...result, _debug: {
+      resolved_clinic_id: resolvedClinicId,
+      slips_count: (slips || []).length,
+      period: `${startDate} ~ ${endDate}`,
+      sample_slips: allSlipsCheck,
+      clinics: allClinics,
+      sample_patients: patientsCheck,
+    } }, { headers: CORS_HEADERS })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS_HEADERS })
   }
