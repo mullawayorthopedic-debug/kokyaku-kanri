@@ -17,7 +17,8 @@ function adminClient() {
 }
 
 // 1000件制限を回避して全件取得
-async function fetchAll(supabase: ReturnType<typeof createClient>, table: string, select: string, filters: Record<string, string>) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAll(supabase: any, table: string, select: string, filters: Record<string, string>) {
   const PAGE_SIZE = 1000
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let all: any[] = []
