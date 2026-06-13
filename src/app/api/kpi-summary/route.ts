@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const DEFAULT_CLINIC_ID = '00000000-0000-0000-0000-000000000001'
+const DEFAULT_CLINIC_ID = 'b0016b6d-6ed7-4614-a6a5-20cb9f6d78cc'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -106,19 +106,7 @@ export async function GET(req: NextRequest) {
       diet_new: dietNewPatients,
     }
 
-    // デバッグ: 全slipsの件数とclinic_idの一覧を取得
-    const { data: allSlipsCheck } = await supabase.from('cm_slips').select('clinic_id, visit_date').limit(5)
-    const { data: allClinics } = await supabase.from('clinics').select('id, name')
-    const { data: patientsCheck } = await supabase.from('cm_patients').select('clinic_id').limit(3)
-
-    return NextResponse.json({ ...result, _debug: {
-      resolved_clinic_id: resolvedClinicId,
-      slips_count: (slips || []).length,
-      period: `${startDate} ~ ${endDate}`,
-      sample_slips: allSlipsCheck,
-      clinics: allClinics,
-      sample_patients: patientsCheck,
-    } }, { headers: CORS_HEADERS })
+    return NextResponse.json(result, { headers: CORS_HEADERS })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS_HEADERS })
   }
