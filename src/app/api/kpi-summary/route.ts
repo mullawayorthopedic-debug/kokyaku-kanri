@@ -28,10 +28,7 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = adminClient()
-
-    // clinic_idを動的に取得（デフォルト値が間違っている場合に対応）
-    const { data: clinics } = await supabase.from('clinics').select('id').limit(1)
-    const resolvedClinicId = clinics?.[0]?.id || clinicId
+    const resolvedClinicId = clinicId
 
     const ym = `${year}-${String(Number(month)).padStart(2, '0')}`
     const startDate = `${ym}-01`
