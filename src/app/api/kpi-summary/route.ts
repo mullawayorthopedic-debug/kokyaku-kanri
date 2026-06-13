@@ -186,7 +186,14 @@ export async function GET(req: NextRequest) {
       profit_ltv: newLtv - cpa,
     }
 
-    return NextResponse.json(result, { headers: CORS_HEADERS })
+    // デバッグ: customer_categoryの分布
+    const catCounts: Record<string, number> = {}
+    allPatients.forEach((p: { customer_category: string }) => {
+      const c = p.customer_category || '(未設定)'
+      catCounts[c] = (catCounts[c] || 0) + 1
+    })
+
+    return NextResponse.json({ ...result, _debug: { patient_count: allPatients.length, category_distribution: catCounts } }, { headers: CORS_HEADERS })
   } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: CORS_HEADERS })
   }
