@@ -172,6 +172,20 @@ export async function GET(req: NextRequest) {
 
     const totalInquiries = (inquiryData || []).reduce((sum: number, r: { inquiries: number }) => sum + (r.inquiries || 0), 0)
 
+    // KGI用: 稼働日数（伝票がある日数）
+    const workDays = new Set(monthSlips.map((s: { visit_date: string }) => s.visit_date)).size
+    // KGI用: 整体/ダイエット別カルテ枚数
+    const seitaiPids = new Set<string>()
+    const dietPids = new Set<string>()
+    monthSlips.forEach((s: { patient_id: string }) => {
+      const cat = patientCategoryMap[s.patient_id] || ''
+      if (cat === 'ダイエット') dietPids.add(s.patient_id)
+      else seitaiPids.add(s.patient_id)
+    })
+    // KGI用: 稼働率（1日9時間=9枠として計算、稼働日×9枠中の施術回数）
+    const maxSlots = workDays * 9
+    const utilization = maxSlots > 0 ? Math.round((totalVisits / maxSlots) * 100) : 0
+
     const result = {
       total_revenue: totalRevenue,
       new_revenue: newRevenue,
@@ -194,6 +208,15 @@ export async function GET(req: NextRequest) {
       ad_spend: adSpend,
       cpa: cpa,
       profit_ltv: newLtv - cpa,
+      // KGI用
+      kgi_work_days: workDays,
+      kgi_karte_total: uniquePids.size,
+      kgi_karte_seitai: seitaiPids.size,
+      kgi_karte_diet: dietPids.size,
+      kgi_frequency: frequency,
+      kgi_unit_price: avgPrice,
+      kgi_utilization: utilization,
+      kgi_revenue_target: totalRevenue,
     }
 
     return NextResponse.json(result, { headers: CORS_HEADERS })
