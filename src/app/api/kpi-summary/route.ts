@@ -154,12 +154,14 @@ export async function GET(req: NextRequest) {
     // 広告費
     const { data: adCosts } = await supabase
       .from('cm_ad_costs')
-      .select('cost')
+      .select('cost, channel')
       .eq('clinic_id', clinicId)
       .gte('month', ym)
       .lte('month', ym)
 
     const adSpend = (adCosts || []).reduce((sum: number, r: { cost: number }) => sum + (r.cost || 0), 0)
+    const adSpendMeta = (adCosts || []).filter((r: { channel: string }) => (r.channel || '').includes('Meta') || (r.channel || '').includes('meta') || (r.channel || '').includes('Facebook')).reduce((sum: number, r: { cost: number }) => sum + (r.cost || 0), 0)
+    const adSpendPpc = (adCosts || []).filter((r: { channel: string }) => (r.channel || '').includes('PPC') || (r.channel || '').includes('Google') || (r.channel || '').includes('ppc')).reduce((sum: number, r: { cost: number }) => sum + (r.cost || 0), 0)
     const cpa = newPids.size > 0 ? Math.round(adSpend / newPids.size) : 0
 
     // 問い合わせデータ
@@ -171,6 +173,35 @@ export async function GET(req: NextRequest) {
       .lte('date', endDate)
 
     const totalInquiries = (inquiryData || []).reduce((sum: number, r: { inquiries: number }) => sum + (r.inquiries || 0), 0)
+
+    // 整体/ダイエット別の新規売上
+    let newRevSeitai = 0, newRevDiet = 0
+    monthSlips.forEach((s: { patient_id: string; total_price: number }) => {
+      if (s.patient_id && firstVisitMonth[s.patient_id] === ym) {
+        const cat = patientCategoryMap[s.patient_id] || ''
+        if (cat === 'ダイエット') newRevDiet += (s.total_price || 0)
+        else newRevSeitai += (s.total_price || 0)
+      }
+    })
+
+    // 整体/ダイエット別LTV
+    const newLtvSeitai = newSeitaiPids.size > 0 ? Math.round(newRevSeitai / newSeitaiPids.size) : 0
+    const newLtvDiet = newDietPids.size > 0 ? Math.round(newRevDiet / newDietPids.size) : 0
+
+    // 整体/ダイエット別リピート率
+    const activeSeitai = activePatients.filter((p: { id: string }) => (patientCategoryMap[p.id] || '') !== 'ダイエット')
+    const activeDiet = activePatients.filter((p: { id: string }) => (patientCategoryMap[p.id] || '') === 'ダイエット')
+    const repeatSeitai = activeSeitai.filter((p: { id: string }) => (visitCountByPatient[p.id] || 0) >= 2).length
+    const repeatDiet = activeDiet.filter((p: { id: string }) => (visitCountByPatient[p.id] || 0) >= 2).length
+    const repeatRateSeitai = activeSeitai.length > 0 ? Math.round((repeatSeitai / activeSeitai.length) * 100) : 0
+    const repeatRateDiet = activeDiet.length > 0 ? Math.round((repeatDiet / activeDiet.length) * 100) : 0
+
+    // 整体/ダイエット別CPA (広告費は全体のみのため、新規比率で按分)
+    const totalNew = newPids.size
+    const cpaSeitai = newSeitaiPids.size > 0 && totalNew > 0 ? Math.round((adSpend * newSeitaiPids.size / totalNew) / newSeitaiPids.size) : 0
+    const cpaDiet = newDietPids.size > 0 && totalNew > 0 ? Math.round((adSpend * newDietPids.size / totalNew) / newDietPids.size) : 0
+    const profitLtvSeitai = newLtvSeitai - cpaSeitai
+    const profitLtvDiet = newLtvDiet - cpaDiet
 
     // KGI用: 稼働日数（伝票がある日数）
     const workDays = new Set(monthSlips.map((s: { visit_date: string }) => s.visit_date)).size
@@ -203,11 +234,21 @@ export async function GET(req: NextRequest) {
       new_from_ad: adNew,
       new_from_referral: referralNew,
       repeat_rate: repeatRate,
+      repeat_rate_seitai: repeatRateSeitai,
+      repeat_rate_diet: repeatRateDiet,
       inquiry_count: totalInquiries,
       new_ltv: newLtv,
+      new_ltv_seitai: newLtvSeitai,
+      new_ltv_diet: newLtvDiet,
       ad_spend: adSpend,
+      ad_spend_meta: adSpendMeta,
+      ad_spend_ppc: adSpendPpc,
       cpa: cpa,
+      cpa_seitai: cpaSeitai,
+      cpa_diet: cpaDiet,
       profit_ltv: newLtv - cpa,
+      profit_ltv_seitai: profitLtvSeitai,
+      profit_ltv_diet: profitLtvDiet,
       // KGI用
       kgi_work_days: workDays,
       kgi_karte_total: uniquePids.size,
