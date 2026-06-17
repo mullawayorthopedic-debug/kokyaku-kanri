@@ -142,14 +142,23 @@ export async function GET(req: NextRequest) {
     // 新規LTV
     const newLtv = newPids.size > 0 ? Math.round(newRevenue / newPids.size) : 0
 
-    // リピート率（伝票から来院回数を算出）
+    // リピート率（新規患者のうち2回以上来院した比率）
+    // 当月の新規患者ごとの当月来院回数を集計
+    const newPidVisitCount: Record<string, number> = {}
+    monthSlips.forEach((s: { patient_id: string }) => {
+      if (s.patient_id && newPids.has(s.patient_id)) {
+        newPidVisitCount[s.patient_id] = (newPidVisitCount[s.patient_id] || 0) + 1
+      }
+    })
+    const newRepeatCount = Object.values(newPidVisitCount).filter(c => c >= 2).length
+    const repeatRate = newPids.size > 0 ? Math.round((newRepeatCount / newPids.size) * 100) : 0
+
+    // 全患者の来院回数（整体/ダイエット別リピート率用）
     const visitCountByPatient: Record<string, number> = {}
     allSlips.forEach((s: { patient_id: string }) => {
       if (s.patient_id) visitCountByPatient[s.patient_id] = (visitCountByPatient[s.patient_id] || 0) + 1
     })
     const activePatients = allPatients.filter((p: { status: string }) => p.status === 'active')
-    const repeatCount = activePatients.filter((p: { id: string }) => (visitCountByPatient[p.id] || 0) >= 2).length
-    const repeatRate = activePatients.length > 0 ? Math.round((repeatCount / activePatients.length) * 100) : 0
 
     // 広告費
     const { data: adCosts } = await supabase
@@ -188,13 +197,11 @@ export async function GET(req: NextRequest) {
     const newLtvSeitai = newSeitaiPids.size > 0 ? Math.round(newRevSeitai / newSeitaiPids.size) : 0
     const newLtvDiet = newDietPids.size > 0 ? Math.round(newRevDiet / newDietPids.size) : 0
 
-    // 整体/ダイエット別リピート率
-    const activeSeitai = activePatients.filter((p: { id: string }) => (patientCategoryMap[p.id] || '') !== 'ダイエット')
-    const activeDiet = activePatients.filter((p: { id: string }) => (patientCategoryMap[p.id] || '') === 'ダイエット')
-    const repeatSeitai = activeSeitai.filter((p: { id: string }) => (visitCountByPatient[p.id] || 0) >= 2).length
-    const repeatDiet = activeDiet.filter((p: { id: string }) => (visitCountByPatient[p.id] || 0) >= 2).length
-    const repeatRateSeitai = activeSeitai.length > 0 ? Math.round((repeatSeitai / activeSeitai.length) * 100) : 0
-    const repeatRateDiet = activeDiet.length > 0 ? Math.round((repeatDiet / activeDiet.length) * 100) : 0
+    // 整体/ダイエット別リピート率（新規ベース）
+    const newSeitaiRepeat = Array.from(newSeitaiPids).filter(pid => (newPidVisitCount[pid] || 0) >= 2).length
+    const newDietRepeat = Array.from(newDietPids).filter(pid => (newPidVisitCount[pid] || 0) >= 2).length
+    const repeatRateSeitai = newSeitaiPids.size > 0 ? Math.round((newSeitaiRepeat / newSeitaiPids.size) * 100) : 0
+    const repeatRateDiet = newDietPids.size > 0 ? Math.round((newDietRepeat / newDietPids.size) * 100) : 0
 
     // 整体/ダイエット別CPA (広告費は全体のみのため、新規比率で按分)
     const totalNew = newPids.size
