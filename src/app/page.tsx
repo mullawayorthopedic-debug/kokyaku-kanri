@@ -87,12 +87,13 @@ export default function HomePage() {
   const [todayPatients, setTodayPatients] = useState<{ id: string; name: string }[]>([])
   const [dropoutPatients, setDropoutPatients] = useState<{ id: string; name: string; status_date: string | null; status_reason: string }[]>([])
   const [graduationPatients, setGraduationPatients] = useState<{ id: string; name: string; status_date: string | null; status_reason: string }[]>([])
+  const [birthdayPatients, setBirthdayPatients] = useState<{ id: string; name: string; birth_date: string }[]>([])
   const [stats, setStats] = useState({ totalPatients: 0, monthVisits: 0, todayVisits: 0, todayRevenue: 0, monthRevenue: 0 })
   const [lastYearStats, setLastYearStats] = useState<{ monthVisits: number; todayVisits: number; todayRevenue: number; monthRevenue: number } | null>(null)
 
   // ===== 当日問い合わせクイック入力 =====
-  interface QuickEntry { channel: string; category: '' | 'seitai' | 'diet' }
-  const emptyQuickEntry = (): QuickEntry => ({ channel: '', category: '' })
+  interface QuickEntry { channel: string; contactMethod: '' | 'LINE' | 'TEL' | 'HPB'; category: '' | 'seitai' | 'diet' }
+  const emptyQuickEntry = (): QuickEntry => ({ channel: '', contactMethod: '', category: '' })
   const [inquiryEntries, setInquiryEntries] = useState<QuickEntry[]>([])
   const [reservationEntries, setReservationEntries] = useState<QuickEntry[]>([])
   const [quickDate, setQuickDate] = useState(getToday)
@@ -178,26 +179,51 @@ export default function HomePage() {
     }
     loadLastYearStats()
 
-    // 離脱・卒業患者を取得
+    // 離脱・卒業患者を取得（当月のみ）
     const loadDropouts = async () => {
+      const monthStart = today.slice(0, 7) + '-01'
       const [dropRes, gradRes] = await Promise.all([
         supabase.from('cm_patients')
           .select('id, name, status_date, status_reason')
           .eq('clinic_id', clinicId)
           .eq('status', 'inactive')
-          .order('status_date', { ascending: false })
-          .limit(20),
+          .gte('status_date', monthStart)
+          .order('status_date', { ascending: false }),
         supabase.from('cm_patients')
           .select('id, name, status_date, status_reason')
           .eq('clinic_id', clinicId)
           .eq('status', 'completed')
-          .order('status_date', { ascending: false })
-          .limit(20),
+          .gte('status_date', monthStart)
+          .order('status_date', { ascending: false }),
       ])
       setDropoutPatients(dropRes.data || [])
       setGraduationPatients(gradRes.data || [])
     }
     loadDropouts()
+
+    // 今月の誕生日患者（直近1ヶ月に来院した方限定）
+    const loadBirthdays = async () => {
+      const currentMonth = today.slice(5, 7)
+      const [y, m, d] = today.split('-').map(Number)
+      const prev = new Date(y, m - 1, d)
+      prev.setMonth(prev.getMonth() - 1)
+      const oneMonthAgo = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`
+      // 直近1ヶ月に来院した患者IDをslipsから取得
+      const { data: slipData } = await supabase.from('cm_slips')
+        .select('patient_id')
+        .eq('clinic_id', clinicId)
+        .gte('visit_date', oneMonthAgo)
+      const recentIds = [...new Set((slipData || []).map(s => s.patient_id))]
+      if (recentIds.length === 0) { setBirthdayPatients([]); return }
+      const { data } = await supabase.from('cm_patients')
+        .select('id, name, birth_date')
+        .eq('clinic_id', clinicId)
+        .eq('status', 'active')
+        .not('birth_date', 'is', null)
+        .in('id', recentIds)
+      setBirthdayPatients((data || []).filter(p => p.birth_date?.slice(5, 7) === currentMonth))
+    }
+    loadBirthdays()
 
   }, [today])
 
@@ -212,11 +238,14 @@ export default function HomePage() {
       const rsvList: QuickEntry[] = []
       ;(data || []).forEach(d => {
         const cat = (d.category as '' | 'seitai' | 'diet') || ''
-        const ch = d.channel || ''
-        // 問い合わせのみの件数（conversionsを引いた純粋な問い合わせ数）
+        const raw = d.channel || ''
+        // "媒体|問い合わせ方法" 形式をデコード
+        const pipeIdx = raw.indexOf('|')
+        const ch = pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw
+        const cm = pipeIdx >= 0 ? (raw.slice(pipeIdx + 1) as '' | 'LINE' | 'TEL' | 'HPB') : ''
         const pureInq = Math.max(0, (d.inquiries || 0) - (d.conversions || 0))
-        for (let i = 0; i < pureInq; i++) inqList.push({ channel: ch, category: cat })
-        for (let i = 0; i < (d.conversions || 0); i++) rsvList.push({ channel: ch, category: cat })
+        for (let i = 0; i < pureInq; i++) inqList.push({ channel: ch, contactMethod: cm, category: cat })
+        for (let i = 0; i < (d.conversions || 0); i++) rsvList.push({ channel: ch, contactMethod: cm, category: cat })
       })
       setInquiryEntries(inqList)
       setReservationEntries(rsvList)
@@ -225,23 +254,26 @@ export default function HomePage() {
   }, [quickDate, clinicId])
 
   const saveQuickInquiry = async () => {
-    const missingInq = inquiryEntries.find(e => !e.channel || !e.category)
-    if (missingInq) { alert('問い合わせの媒体と区分をすべて選択してください'); return }
-    const missingRsv = reservationEntries.find(e => !e.channel || !e.category)
-    if (missingRsv) { alert('予約の媒体と区分をすべて選択してください'); return }
+    const missingInq = inquiryEntries.find(e => !e.channel || !e.contactMethod || !e.category)
+    if (missingInq) { alert('問い合わせの媒体・問い合わせ方法・区分をすべて選択してください'); return }
+    const missingRsv = reservationEntries.find(e => !e.channel || !e.contactMethod || !e.category)
+    if (missingRsv) { alert('予約の媒体・問い合わせ方法・区分をすべて選択してください'); return }
 
     setSavingQuick(true)
     setQuickSaved(false)
     try {
-      // channel+category ごとに集計
+      // channel+contactMethod+category ごとに集計
+      // channelフィールドに "媒体|問い合わせ方法" を格納（例: "PPC（腰痛）|LINE"）
       const agg: Record<string, { inquiries: number; conversions: number }> = {}
       inquiryEntries.forEach(e => {
-        const key = `${e.channel}::${e.category}`
+        const chKey = e.contactMethod ? `${e.channel}|${e.contactMethod}` : e.channel
+        const key = `${chKey}::${e.category}`
         if (!agg[key]) agg[key] = { inquiries: 0, conversions: 0 }
         agg[key].inquiries++
       })
       reservationEntries.forEach(e => {
-        const key = `${e.channel}::${e.category}`
+        const chKey = e.contactMethod ? `${e.channel}|${e.contactMethod}` : e.channel
+        const key = `${chKey}::${e.category}`
         if (!agg[key]) agg[key] = { inquiries: 0, conversions: 0 }
         agg[key].inquiries++
         agg[key].conversions++
@@ -446,20 +478,21 @@ export default function HomePage() {
       setStatusSaved(true)
       setDropoutEntries([emptyEntry()])
       setGraduationEntries([emptyEntry()])
-      // 離脱・卒業患者リストをリフレッシュ
+      // 離脱・卒業患者リストをリフレッシュ（当月のみ）
+      const monthStart = today.slice(0, 7) + '-01'
       const [dropRes, gradRes] = await Promise.all([
         supabase.from('cm_patients')
           .select('id, name, status_date, status_reason')
           .eq('clinic_id', clinicId)
           .eq('status', 'inactive')
-          .order('status_date', { ascending: false })
-          .limit(20),
+          .gte('status_date', monthStart)
+          .order('status_date', { ascending: false }),
         supabase.from('cm_patients')
           .select('id, name, status_date, status_reason')
           .eq('clinic_id', clinicId)
           .eq('status', 'completed')
-          .order('status_date', { ascending: false })
-          .limit(20),
+          .gte('status_date', monthStart)
+          .order('status_date', { ascending: false }),
       ])
       setDropoutPatients(dropRes.data || [])
       setGraduationPatients(gradRes.data || [])
@@ -777,7 +810,8 @@ export default function HomePage() {
         {/* ===== メインコンテンツ（2カラム） ===== */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-          {/* ===== 左: 施術記録 ===== */}
+          {/* ===== 左: 施術記録 + 当月離脱一覧 ===== */}
+          <div className="space-y-4">
           <div className="bg-white rounded-xl shadow-sm p-5">
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-bold text-gray-800 text-base">🩺 施術記録</h2>
@@ -839,6 +873,50 @@ export default function HomePage() {
             )}
           </div>
 
+          {/* 当月の離脱・卒業患者一覧 */}
+          {(dropoutPatients.length > 0 || graduationPatients.length > 0) && (
+            <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
+              <h2 className="font-bold text-gray-800 text-base mb-3 flex items-center gap-2">
+                <span>📋</span> 当月の離脱・卒業
+              </h2>
+              {dropoutPatients.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="font-bold text-xs text-red-700 mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500" /> 離脱（{dropoutPatients.length}名）
+                  </h3>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {dropoutPatients.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-red-100 rounded-lg p-2 bg-red-50/30 hover:bg-red-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                          {p.status_date && <span className="text-[10px] text-red-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {graduationPatients.length > 0 && (
+                <div className={dropoutPatients.length > 0 ? 'pt-4 border-t border-blue-100' : ''}>
+                  <h3 className="font-bold text-xs text-blue-700 mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" /> 卒業（{graduationPatients.length}名）
+                  </h3>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {graduationPatients.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-blue-100 rounded-lg p-2 bg-blue-50/30 hover:bg-blue-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                          {p.status_date && <span className="text-[10px] text-blue-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+
           {/* ===== 右: 本日の来院患者 + 離脱患者 ===== */}
           <div className="space-y-4">
             <div className="bg-white rounded-xl shadow-sm p-5">
@@ -893,14 +971,20 @@ export default function HomePage() {
                   ) : (
                     <div className="space-y-2">
                       {inquiryEntries.map((entry, i) => (
-                        <div key={i} className="flex gap-1.5 items-center bg-orange-50/50 rounded-lg px-2 py-1.5">
+                        <div key={i} className="flex flex-wrap gap-1.5 items-center bg-orange-50/50 rounded-lg px-2 py-1.5">
                           <span className="text-[10px] text-orange-400 font-bold w-4 shrink-0">{i + 1}</span>
                           <select value={entry.channel}
                             onChange={e => setInquiryEntries(prev => prev.map((x, j) => j === i ? { ...x, channel: e.target.value } : x))}
-                            className="flex-1 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400 bg-white">
+                            className="flex-1 min-w-[100px] px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400 bg-white">
                             <option value="">媒体</option>
+                            {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                          </select>
+                          <select value={entry.contactMethod}
+                            onChange={e => setInquiryEntries(prev => prev.map((x, j) => j === i ? { ...x, contactMethod: e.target.value as '' | 'LINE' | 'TEL' } : x))}
+                            className="w-16 px-2 py-1.5 border border-orange-200 rounded-lg text-xs focus:outline-none focus:border-orange-400 bg-white">
+                            <option value="">方法</option>
                             <option value="LINE">LINE</option>
-                            <option value="電話">電話</option>
+                            <option value="TEL">TEL</option>
                             <option value="HPB">HPB</option>
                           </select>
                           <select value={entry.category}
@@ -936,13 +1020,21 @@ export default function HomePage() {
                   ) : (
                     <div className="space-y-2">
                       {reservationEntries.map((entry, i) => (
-                        <div key={i} className="flex gap-1.5 items-center bg-blue-50/50 rounded-lg px-2 py-1.5">
+                        <div key={i} className="flex flex-wrap gap-1.5 items-center bg-blue-50/50 rounded-lg px-2 py-1.5">
                           <span className="text-[10px] text-blue-400 font-bold w-4 shrink-0">{i + 1}</span>
                           <select value={entry.channel}
                             onChange={e => setReservationEntries(prev => prev.map((x, j) => j === i ? { ...x, channel: e.target.value } : x))}
-                            className="flex-1 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400 bg-white">
+                            className="flex-1 min-w-[100px] px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400 bg-white">
                             <option value="">媒体</option>
                             {adChannels.map(ch => <option key={ch} value={ch}>{ch}</option>)}
+                          </select>
+                          <select value={entry.contactMethod}
+                            onChange={e => setReservationEntries(prev => prev.map((x, j) => j === i ? { ...x, contactMethod: e.target.value as '' | 'LINE' | 'TEL' } : x))}
+                            className="w-16 px-2 py-1.5 border border-blue-200 rounded-lg text-xs focus:outline-none focus:border-blue-400 bg-white">
+                            <option value="">方法</option>
+                            <option value="LINE">LINE</option>
+                            <option value="TEL">TEL</option>
+                            <option value="HPB">HPB</option>
                           </select>
                           <select value={entry.category}
                             onChange={e => setReservationEntries(prev => prev.map((x, j) => j === i ? { ...x, category: e.target.value as '' | 'seitai' | 'diet' } : x))}
@@ -967,6 +1059,33 @@ export default function HomePage() {
                 <p className="text-[10px] text-gray-400 text-center">※ 営業データの新規集客に自動反映されます</p>
               </div>
             </div>
+
+            {/* ===== 今月の誕生日患者 ===== */}
+            {birthdayPatients.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm p-5 border border-yellow-100">
+                <h2 className="font-bold text-gray-800 text-base mb-3 flex items-center gap-2">
+                  <span>🎂</span> {today.slice(5, 7)}月の誕生日の方
+                  <span className="text-xs font-normal text-gray-400 ml-1">直近1ヶ月来院 · {birthdayPatients.length}名</span>
+                </h2>
+                <div className="space-y-1.5">
+                  {birthdayPatients.map(p => {
+                    const [, bm, bd] = (p.birth_date || '').split('-')
+                    return (
+                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-yellow-100 rounded-lg p-2.5 bg-yellow-50/30 hover:bg-yellow-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <p className="text-sm font-bold text-gray-800">{p.name}</p>
+                          {bm && bd && (
+                            <span className="text-[11px] text-yellow-600 shrink-0">
+                              {parseInt(bm)}月{parseInt(bd)}日生
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* ===== 離脱・卒業登録 ===== */}
             <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
@@ -1091,44 +1210,6 @@ export default function HomePage() {
                 {savingStatus ? '保存中...' : statusSaved ? '✓ 登録しました' : '登録する'}
               </button>
               <p className="text-[10px] text-gray-400 text-center mt-1.5">※ 顧客名簿のステータスに自動反映されます</p>
-
-              {/* 離脱患者一覧 */}
-              {dropoutPatients.length > 0 && (
-                <div className="mt-5 pt-4 border-t border-red-100">
-                  <h3 className="font-bold text-xs text-red-700 mb-2 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-red-500" /> 離脱患者（{dropoutPatients.length}名）
-                  </h3>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                    {dropoutPatients.map(p => (
-                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-red-100 rounded-lg p-2 bg-red-50/30 hover:bg-red-50">
-                        <div className="flex justify-between items-center gap-2">
-                          <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
-                          {p.status_date && <span className="text-[10px] text-red-500 shrink-0">{p.status_date}</span>}
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 卒業患者一覧 */}
-              {graduationPatients.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-blue-100">
-                  <h3 className="font-bold text-xs text-blue-700 mb-2 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-blue-500" /> 卒業患者（{graduationPatients.length}名）
-                  </h3>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                    {graduationPatients.map(p => (
-                      <Link key={p.id} href={`/patients/${p.id}`} className="block border border-blue-100 rounded-lg p-2 bg-blue-50/30 hover:bg-blue-50">
-                        <div className="flex justify-between items-center gap-2">
-                          <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
-                          {p.status_date && <span className="text-[10px] text-blue-500 shrink-0">{p.status_date}</span>}
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 

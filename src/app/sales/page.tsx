@@ -1,8 +1,19 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import AppShell from '@/components/AppShell'
+import { createClient } from '@/lib/supabase/client'
 import { saleTabs } from '@/lib/saleTabs'
+import { getClinicId } from '@/lib/clinic'
+
+interface DropoutPatient {
+  id: string
+  name: string
+  status: string
+  status_date: string | null
+  customer_category: string | null
+}
 
 const menuCards = [
   { href: '/sales/daily-report', icon: '📅', title: '日報集計', desc: '日別売上・現金・クレジット・新規/リピート集計' },
@@ -25,6 +36,32 @@ const menuCards = [
 ]
 
 export default function SalesPage() {
+  const supabase = createClient()
+  const clinicId = getClinicId()
+  const today = new Date()
+  const thisMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+  const monthStart = thisMonth + '-01'
+
+  const [dropouts, setDropouts] = useState<DropoutPatient[]>([])
+  const [loadingDropouts, setLoadingDropouts] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data } = await supabase.from('cm_patients')
+        .select('id, name, status, status_date, customer_category')
+        .eq('clinic_id', clinicId)
+        .in('status', ['inactive', 'completed'])
+        .gte('status_date', monthStart)
+        .order('status_date', { ascending: false })
+      setDropouts(data || [])
+      setLoadingDropouts(false)
+    }
+    load()
+  }, [clinicId])
+
+  const monthDropouts = dropouts.filter(p => p.status === 'inactive')
+  const monthGraduations = dropouts.filter(p => p.status === 'completed')
+
   return (
     <AppShell>
       <div className="max-w-5xl mx-auto px-4 py-4">
@@ -43,7 +80,7 @@ export default function SalesPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           {menuCards.map(card => (
             <Link key={card.href} href={card.href} className="bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-all hover:-translate-y-0.5 group border border-gray-100">
               <div className="flex items-start gap-4">
@@ -55,6 +92,84 @@ export default function SalesPage() {
               </div>
             </Link>
           ))}
+        </div>
+
+        {/* 当月の離脱・卒業リスト */}
+        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="font-bold text-gray-800 text-base flex items-center gap-2">
+              <span>📋</span> {thisMonth.replace('-', '年')}月の離脱・卒業
+            </h2>
+            <Link href="/sales/churn" className="text-xs text-blue-600 font-medium hover:text-blue-800">
+              全期間を見る →
+            </Link>
+          </div>
+
+          {loadingDropouts ? (
+            <p className="text-gray-400 text-sm text-center py-6">読み込み中...</p>
+          ) : dropouts.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-6">当月の離脱・卒業患者はいません</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* 離脱 */}
+              <div>
+                <h3 className="font-bold text-xs text-red-700 mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-red-500" /> 離脱（{monthDropouts.length}名）
+                </h3>
+                {monthDropouts.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2">なし</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {monthDropouts.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`}
+                        className="block border border-red-100 rounded-lg p-2.5 bg-red-50/30 hover:bg-red-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                            {p.customer_category && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                                p.customer_category === 'ダイエット' ? 'bg-purple-100 text-purple-600' : 'bg-green-100 text-green-600'
+                              }`}>{p.customer_category}</span>
+                            )}
+                          </div>
+                          {p.status_date && <span className="text-[10px] text-red-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 卒業 */}
+              <div>
+                <h3 className="font-bold text-xs text-blue-700 mb-2 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" /> 卒業（{monthGraduations.length}名）
+                </h3>
+                {monthGraduations.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2">なし</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {monthGraduations.map(p => (
+                      <Link key={p.id} href={`/patients/${p.id}`}
+                        className="block border border-blue-100 rounded-lg p-2.5 bg-blue-50/30 hover:bg-blue-50">
+                        <div className="flex justify-between items-center gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-xs font-bold text-gray-800 truncate">{p.name}</p>
+                            {p.customer_category && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                                p.customer_category === 'ダイエット' ? 'bg-purple-100 text-purple-600' : 'bg-green-100 text-green-600'
+                              }`}>{p.customer_category}</span>
+                            )}
+                          </div>
+                          {p.status_date && <span className="text-[10px] text-blue-500 shrink-0">{p.status_date}</span>}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </AppShell>
