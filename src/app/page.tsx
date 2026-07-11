@@ -203,25 +203,38 @@ export default function HomePage() {
 
     // 今月の誕生日患者（直近1ヶ月に来院した方限定）
     const loadBirthdays = async () => {
-      const currentMonth = today.slice(5, 7)
+      const currentMonth = today.slice(5, 7) // "07" など
       const [y, m, d] = today.split('-').map(Number)
       const prev = new Date(y, m - 1, d)
       prev.setMonth(prev.getMonth() - 1)
       const oneMonthAgo = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`
-      // 直近1ヶ月に来院した患者IDをslipsから取得
-      const { data: slipData } = await supabase.from('cm_slips')
-        .select('patient_id')
-        .eq('clinic_id', clinicId)
-        .gte('visit_date', oneMonthAgo)
-      const recentIds = [...new Set((slipData || []).map(s => s.patient_id))]
-      if (recentIds.length === 0) { setBirthdayPatients([]); return }
-      const { data } = await supabase.from('cm_patients')
+
+      // ① 今月誕生日のアクティブ患者を全件取得（来院条件なし）
+      const { data: patients } = await supabase.from('cm_patients')
         .select('id, name, birth_date')
         .eq('clinic_id', clinicId)
         .eq('status', 'active')
         .not('birth_date', 'is', null)
-        .in('id', recentIds)
-      setBirthdayPatients((data || []).filter(p => p.birth_date?.slice(5, 7) === currentMonth))
+
+      const thisMonthBirthday = (patients || []).filter(p =>
+        p.birth_date && p.birth_date.slice(5, 7) === currentMonth
+      )
+
+      if (thisMonthBirthday.length === 0) { setBirthdayPatients([]); return }
+
+      // ② その患者だけを対象に直近1ヶ月の来院slipを確認
+      const { data: slipData } = await supabase.from('cm_slips')
+        .select('patient_id')
+        .eq('clinic_id', clinicId)
+        .gte('visit_date', oneMonthAgo)
+        .in('patient_id', thisMonthBirthday.map(p => p.id))
+
+      const recentIds = new Set((slipData || []).map(s => s.patient_id))
+      setBirthdayPatients(
+        thisMonthBirthday
+          .filter(p => recentIds.has(p.id))
+          .sort((a, b) => parseInt(a.birth_date!.slice(8, 10)) - parseInt(b.birth_date!.slice(8, 10)))
+      )
     }
     loadBirthdays()
 
