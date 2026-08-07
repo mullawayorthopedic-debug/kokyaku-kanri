@@ -22,7 +22,6 @@ interface PatientSuggestion {
   id: string
   name: string
   customer_category: string
-  last_visit_date: string | null
 }
 
 const emptyForm = {
@@ -60,7 +59,7 @@ export default function PendingNextVisitPage() {
   const searchPatients = async (query: string) => {
     if (!clinicId || query.length < 1) { setSuggestions([]); return }
     const { data } = await supabase.from('cm_patients')
-      .select('id, name, customer_category, last_visit_date')
+      .select('id, name, customer_category')
       .eq('clinic_id', clinicId)
       .eq('status', 'active')
       .or(`name.ilike.%${query}%,furigana.ilike.%${query}%`)
@@ -68,15 +67,24 @@ export default function PendingNextVisitPage() {
     setSuggestions(data || [])
   }
 
-  const selectSuggestion = (p: PatientSuggestion) => {
+  const selectSuggestion = async (p: PatientSuggestion) => {
     setForm(prev => ({
       ...prev,
       name: p.name,
       patientId: p.id,
-      lastVisitDate: p.last_visit_date || prev.lastVisitDate,
       category: p.customer_category === 'ダイエット' || p.customer_category === '整体' ? p.customer_category : prev.category,
     }))
     setSuggestions([])
+    const { data: lastSlip } = await supabase.from('cm_slips')
+      .select('visit_date')
+      .eq('clinic_id', clinicId)
+      .eq('patient_id', p.id)
+      .order('visit_date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (lastSlip?.visit_date) {
+      setForm(prev => (prev.patientId === p.id ? { ...prev, lastVisitDate: lastSlip.visit_date } : prev))
+    }
   }
 
   const handleAdd = async () => {
