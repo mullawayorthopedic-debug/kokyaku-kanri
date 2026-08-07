@@ -886,6 +886,14 @@ export default function HomePage() {
             )}
           </div>
 
+          {/* 次回予約未定の患者 */}
+          <Link href="/patients/pending-next-visit" className="flex items-center justify-between bg-white rounded-xl shadow-sm p-4 border border-gray-200 hover:bg-gray-50 transition-colors">
+            <span className="font-bold text-gray-800 text-sm flex items-center gap-2">
+              <span>📅</span> 次回予約未定の患者
+            </span>
+            <span className="text-gray-400">→</span>
+          </Link>
+
           {/* 当月の離脱・卒業患者一覧 */}
           {(dropoutPatients.length > 0 || graduationPatients.length > 0) && (
             <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-200">
