@@ -662,7 +662,7 @@ export default function HomePage() {
                       <span key={ch} className="text-xs bg-white border border-gray-200 text-gray-700 px-2.5 py-1 rounded-full">{ch}</span>
                     ))
                   )}
-                  <Link href="/master" className="ml-auto text-xs text-blue-600 hover:underline font-medium">
+                  <Link href="/master/ad-channels" className="ml-auto text-xs text-blue-600 hover:underline font-medium">
                     マスター設定で媒体を編集 →
                   </Link>
                 </div>
@@ -672,7 +672,7 @@ export default function HomePage() {
             {adChannels.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-400 text-sm mb-2">広告チャネルが未設定です</p>
-                <Link href="/master" className="text-xs text-blue-600 underline">マスター設定で広告媒体を登録する →</Link>
+                <Link href="/master/ad-channels" className="text-xs text-blue-600 underline">マスター設定で広告媒体を登録する →</Link>
               </div>
             ) : loadingInquiry ? (
               <p className="text-gray-400 text-sm text-center py-8">読み込み中...</p>

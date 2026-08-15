@@ -12,6 +12,7 @@ const sections = [
     { href: '/master/occupations', label: '職業', desc: '会社員・自営業等', icon: '💼' },
     { href: '/master/customer-categories', label: '顧客区分', desc: '新規・リピーター・VIP等', icon: '🏷️' },
     { href: '/master/symptoms', label: '症状', desc: '腰痛・肩こり等', icon: '🩺' },
+    { href: '/master/ad-channels', label: '広告媒体', desc: 'インスタ・LINE・PPC等（問い合わせ入力で使用）', icon: '📣' },
   ]},
   { title: '3. メニューマスター管理', icon: '📋', items: [
     { href: '/master/menu-categories', label: '分類', desc: 'メニューのカテゴリ', icon: '📁' },
