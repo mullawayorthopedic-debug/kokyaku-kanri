@@ -23,7 +23,6 @@ interface MonthRow {
 
 function fmtY(n: number) { return n === 0 ? '-' : '¥' + n.toLocaleString() }
 function fmtN(n: number) { return n === 0 ? '-' : n.toLocaleString() }
-function isLineChannel(channel: string) { return channel.includes('LINE') }
 function isDietChannel(channel: string) { return channel.includes('ダイエット') }
 
 export default function LineCpaPage() {
@@ -40,11 +39,16 @@ export default function LineCpaPage() {
     const load = async () => {
       setLoading(true)
 
+      // 広告媒体マスターに登録されている「LINE」を含む媒体名のみを対象にする
+      // （例: LINE登録（整体）／LINE登録（ダイエット）。過去の問い合わせ方法欄の"LINE"単体は含めない）
       const { data: channels } = await supabase
         .from('cm_ad_channels')
         .select('name')
         .eq('clinic_id', clinicId)
-      setHasLineChannel(!!channels?.some(c => isLineChannel(c.name || '')))
+      const lineChannelNames = new Set(
+        (channels || []).map(c => c.name || '').filter(name => name.includes('LINE'))
+      )
+      setHasLineChannel(lineChannelNames.size > 0)
 
       const { data: adCosts } = await supabase
         .from('cm_ad_costs')
@@ -63,7 +67,7 @@ export default function LineCpaPage() {
       const costByMonth: Record<string, { seitai: number; diet: number }> = {}
       adCosts?.forEach(ac => {
         const ch = ac.channel || ''
-        if (!isLineChannel(ch)) return
+        if (!lineChannelNames.has(ch)) return
         if (!costByMonth[ac.month]) costByMonth[ac.month] = { seitai: 0, diet: 0 }
         if (isDietChannel(ch)) costByMonth[ac.month].diet += ac.cost || 0
         else costByMonth[ac.month].seitai += ac.cost || 0
@@ -74,7 +78,7 @@ export default function LineCpaPage() {
         const raw = row.channel || ''
         const pipeIdx = raw.indexOf('|')
         const chName = pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw
-        if (!isLineChannel(chName)) return
+        if (!lineChannelNames.has(chName)) return
         const m = row.date.slice(0, 7)
         if (!countByMonth[m]) countByMonth[m] = { seitai: 0, diet: 0 }
         if (row.category === 'seitai') countByMonth[m].seitai += row.inquiries || 0
@@ -234,8 +238,8 @@ export default function LineCpaPage() {
         )}
 
         <p className="text-xs text-gray-400 mt-3">
-          ※ LINE広告費は「広告費入力」ページで媒体名にLINEを含むもの（例: LINE登録（整体）／LINE登録（ダイエット）)の月次コストを入力してください。<br/>
-          ※ LINE登録数はホーム画面の「問い合わせ入力」で媒体にLINEを含むものを選んで記録した件数です。CPA = LINE広告費 ÷ LINE登録数。
+          ※ 集計対象は、マスター「広告媒体」に登録されている媒体名にLINEを含むもの（例: LINE登録（整体）／LINE登録（ダイエット））のみです。過去の「方法＝LINE」だけの記録は含みません。<br/>
+          ※ LINE広告費は「広告費入力」ページで該当媒体の月次コストを入力してください。LINE登録数はホーム画面の「問い合わせ入力」で該当媒体を選んで記録した件数です。CPA = LINE広告費 ÷ LINE登録数。
         </p>
       </div>
     </AppShell>
