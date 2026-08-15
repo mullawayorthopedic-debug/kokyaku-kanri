@@ -7,6 +7,7 @@ export const saleTabs = [
   { href: '/sales/new-existing', label: '新規/既存' },
   { href: '/sales/roas', label: 'ROAS' },
   { href: '/sales/ad-costs', label: '広告費入力' },
+  { href: '/sales/line-cpa', label: 'LINE CPA' },
   { href: '/sales/ltv', label: 'LTV' },
   { href: '/sales/repeat', label: 'リピート' },
   { href: '/sales/hourly', label: '時間単価' },

@@ -28,6 +28,9 @@ interface MonthlyData {
   inquiryDiet: number
   reservationSeitai: number
   reservationDiet: number
+  lineSeitai: number
+  lineDiet: number
+  channelInquiries: Record<string, number>
 }
 
 interface NewPatientDetail {
@@ -174,12 +177,12 @@ export default function NewExistingPage() {
       // 問い合わせ・予約データ取得
       const { data: inquiryData } = await supabase
         .from('cm_daily_inquiries')
-        .select('date, category, inquiries, conversions')
+        .select('date, channel, category, inquiries, conversions')
         .eq('clinic_id', clinicId)
-      const inquiryByMonth: Record<string, { inquiries: number; reservations: number; inquirySeitai: number; inquiryDiet: number; reservationSeitai: number; reservationDiet: number }> = {}
-      inquiryData?.forEach((row: { date: string; category: string | null; inquiries: number; conversions: number }) => {
+      const inquiryByMonth: Record<string, { inquiries: number; reservations: number; inquirySeitai: number; inquiryDiet: number; reservationSeitai: number; reservationDiet: number; lineSeitai: number; lineDiet: number; channelInquiries: Record<string, number> }> = {}
+      inquiryData?.forEach((row: { date: string; channel: string | null; category: string | null; inquiries: number; conversions: number }) => {
         const m = row.date.slice(0, 7)
-        if (!inquiryByMonth[m]) inquiryByMonth[m] = { inquiries: 0, reservations: 0, inquirySeitai: 0, inquiryDiet: 0, reservationSeitai: 0, reservationDiet: 0 }
+        if (!inquiryByMonth[m]) inquiryByMonth[m] = { inquiries: 0, reservations: 0, inquirySeitai: 0, inquiryDiet: 0, reservationSeitai: 0, reservationDiet: 0, lineSeitai: 0, lineDiet: 0, channelInquiries: {} }
         inquiryByMonth[m].inquiries += row.inquiries || 0
         inquiryByMonth[m].reservations += row.conversions || 0
         if (row.category === 'seitai') {
@@ -188,6 +191,18 @@ export default function NewExistingPage() {
         } else if (row.category === 'diet') {
           inquiryByMonth[m].inquiryDiet += row.inquiries || 0
           inquiryByMonth[m].reservationDiet += row.conversions || 0
+        }
+        // "媒体|問い合わせ方法" の媒体名にLINEを含むものをLINEリスト登録数として集計
+        const rawCh = row.channel || ''
+        const pipeIdx = rawCh.indexOf('|')
+        const chName = pipeIdx >= 0 ? rawCh.slice(0, pipeIdx) : rawCh
+        if (chName.includes('LINE')) {
+          if (row.category === 'seitai') inquiryByMonth[m].lineSeitai += row.inquiries || 0
+          else if (row.category === 'diet') inquiryByMonth[m].lineDiet += row.inquiries || 0
+        }
+        if (row.channel && (row.inquiries || 0) > 0) {
+          // "媒体|問い合わせ方法" 形式を保持して集計（表示時に分割）
+          inquiryByMonth[m].channelInquiries[rawCh] = (inquiryByMonth[m].channelInquiries[rawCh] || 0) + (row.inquiries || 0)
         }
       })
 
@@ -215,6 +230,9 @@ export default function NewExistingPage() {
           inquiryDiet: inquiryByMonth[month]?.inquiryDiet || 0,
           reservationSeitai: inquiryByMonth[month]?.reservationSeitai || 0,
           reservationDiet: inquiryByMonth[month]?.reservationDiet || 0,
+          lineSeitai: inquiryByMonth[month]?.lineSeitai || 0,
+          lineDiet: inquiryByMonth[month]?.lineDiet || 0,
+          channelInquiries: inquiryByMonth[month]?.channelInquiries || {},
         }))
 
       const details: Record<string, NewPatientDetail[]> = {}
@@ -351,9 +369,35 @@ export default function NewExistingPage() {
                     <span className="text-orange-600">問合せ {d.inquiries}件 <span className="text-xs">({d.inquirySeitai}/{d.inquiryDiet})</span></span>
                     <span className="text-purple-600">予約 {d.reservations}件 <span className="text-xs">({d.reservationSeitai}/{d.reservationDiet})</span></span>
                   </div>
+                  {(d.lineSeitai + d.lineDiet) > 0 && (
+                    <div className="flex justify-between mt-0.5">
+                      <span className="text-emerald-600">LINE登録 {d.lineSeitai + d.lineDiet}件 <span className="text-xs">({d.lineSeitai}/{d.lineDiet})</span></span>
+                    </div>
+                  )}
                 </div>
                 {selectedMonth === d.month && (
                   <div className="mt-3 pt-3 border-t border-blue-100">
+                    {Object.keys(d.channelInquiries).length > 0 && (
+                      <div className="mb-3 bg-orange-50 rounded-xl p-2.5 border border-orange-100">
+                        <p className="text-[10px] font-semibold text-orange-700 mb-1.5">媒体別 問い合わせ数</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(d.channelInquiries)
+                            .sort(([, a], [, b]) => b - a)
+                            .map(([rawCh, count]) => {
+                              const pipeIdx = rawCh.indexOf('|')
+                              const chName = pipeIdx >= 0 ? rawCh.slice(0, pipeIdx) : rawCh
+                              const method = pipeIdx >= 0 ? rawCh.slice(pipeIdx + 1) : ''
+                              return (
+                                <span key={rawCh} className="bg-white border border-orange-200 text-orange-700 px-2 py-0.5 rounded text-[10px] font-medium flex items-center gap-1">
+                                  <span>{chName}</span>
+                                  {method && <span className={`px-1 rounded text-[9px] font-bold ${method === 'LINE' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{method}</span>}
+                                  <span>: {count}件</span>
+                                </span>
+                              )
+                            })}
+                        </div>
+                      </div>
+                    )}
                     <DetailPanel details={monthDetails[d.month] || []} onClickPatient={openPatient} />
                   </div>
                 )}
@@ -371,6 +415,7 @@ export default function NewExistingPage() {
                   <th className="text-right px-3 py-2 text-xs text-gray-500">新規売上</th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">新規件数<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">問い合わせ<br/><span className="text-gray-400 font-normal">予約</span></th>
+                  <th className="text-right px-3 py-2 text-xs text-gray-500">LINE登録<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">既存売上<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">既存件数<br/><span className="text-gray-400 font-normal">整体/ダイエット</span></th>
                   <th className="text-right px-3 py-2 text-xs text-gray-500">総売上</th>
@@ -380,7 +425,7 @@ export default function NewExistingPage() {
               </thead>
               <tbody>
                 {data.length === 0 ? (
-                  <tr><td colSpan={9} className="text-center py-8 text-gray-400">データがありません</td></tr>
+                  <tr><td colSpan={10} className="text-center py-8 text-gray-400">データがありません</td></tr>
                 ) : data.map(d => (
                   <>
                   <tr key={d.month}
@@ -410,6 +455,12 @@ export default function NewExistingPage() {
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right">
+                      <span className="text-emerald-600 font-medium">{d.lineSeitai + d.lineDiet}件</span>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        <span className="text-teal-600">{d.lineSeitai}</span>/<span className="text-orange-500">{d.lineDiet}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right">
                       <span className="text-green-600 font-medium">{d.existingRevenue.toLocaleString()}円</span>
                       <div className="text-xs text-gray-400 mt-0.5">
                         <span className="text-teal-600">{d.existRevSeitai.toLocaleString()}</span>/<span className="text-orange-500">{d.existRevDiet.toLocaleString()}</span>
@@ -433,7 +484,29 @@ export default function NewExistingPage() {
                   {/* 展開パネル */}
                   {selectedMonth === d.month && (
                     <tr key={`${d.month}-detail`}>
-                      <td colSpan={9} className="px-4 py-4 bg-blue-50 border-b">
+                      <td colSpan={10} className="px-4 py-4 bg-blue-50 border-b">
+                        {/* 媒体別問い合わせ数 */}
+                        {Object.keys(d.channelInquiries).length > 0 && (
+                          <div className="mb-4 bg-orange-50 rounded-xl p-3 border border-orange-100">
+                            <p className="text-xs font-semibold text-orange-700 mb-2">媒体別 問い合わせ数（{d.month}）</p>
+                            <div className="flex flex-wrap gap-2">
+                              {Object.entries(d.channelInquiries)
+                                .sort(([, a], [, b]) => b - a)
+                                .map(([rawCh, count]) => {
+                                  const pipeIdx = rawCh.indexOf('|')
+                                  const chName = pipeIdx >= 0 ? rawCh.slice(0, pipeIdx) : rawCh
+                                  const method = pipeIdx >= 0 ? rawCh.slice(pipeIdx + 1) : ''
+                                  return (
+                                    <span key={rawCh} className="bg-white border border-orange-200 text-orange-700 px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1">
+                                      <span>{chName}</span>
+                                      {method && <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${method === 'LINE' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{method}</span>}
+                                      <span className="font-bold text-orange-800">: {count}件</span>
+                                    </span>
+                                  )
+                                })}
+                            </div>
+                          </div>
+                        )}
                         <p className="text-xs font-semibold text-blue-700 mb-3">
                           {d.month} 新規患者一覧（計 {d.newCount}名 / {d.newRevenue.toLocaleString()}円）
                         </p>
